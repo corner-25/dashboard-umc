@@ -1604,7 +1604,7 @@ def create_distance_analysis_tab(df):
     st.dataframe(distance_stats, use_container_width=True, hide_index=True)
     
 def create_fuel_analysis_tab(df):
-    """Tab 5: Phân tích nhiên liệu chi tiết - FIXED VERSION"""
+    """Tab 5: Phân tích nhiên liệu chi tiết - COMPLETELY REWRITTEN VERSION"""
     st.markdown("### ⛽ Phân tích nhiên liệu và định mức tiêu thụ")
     
     if df.empty:
@@ -1627,88 +1627,79 @@ def create_fuel_analysis_tab(df):
         "51B-330.67": 29
     }
     
-    # Đảm bảo dữ liệu nhiên liệu và quãng đường hợp lệ
-    if 'fuel_liters' not in df.columns or 'distance_km' not in df.columns:
-        st.error("❌ Thiếu dữ liệu nhiên liệu hoặc quãng đường")
+    # Kiểm tra cột cần thiết
+    if 'vehicle_id' not in df.columns:
+        st.error("❌ Thiếu cột vehicle_id")
+        return
+        
+    if 'fuel_liters' not in df.columns and 'distance_km' not in df.columns:
+        st.error("❌ Thiếu cột fuel_liters hoặc distance_km")
         return
     
-    # FIXED: Làm sạch dữ liệu - dữ liệu đã là float64, chỉ cần xử lý NaN và outliers
-    df = df.copy()  # Tạo copy để tránh thay đổi dữ liệu gốc
+    # BƯỚC 1: Clean dữ liệu cơ bản - KHÔNG loại bỏ xe nào
+    df_clean = df.copy()
     
-    # Clean fuel_liters
-    df['fuel_liters'] = pd.to_numeric(df['fuel_liters'], errors='coerce').fillna(0)
-    # Remove unrealistic values
-    df['fuel_liters'] = df['fuel_liters'].apply(lambda x: x if (x >= 0 and x <= 500) else 0)
+    # Đảm bảo có cột fuel_liters và distance_km
+    if 'fuel_liters' not in df_clean.columns:
+        df_clean['fuel_liters'] = 0
+    if 'distance_km' not in df_clean.columns:
+        df_clean['distance_km'] = 0
+        
+    # Clean fuel_liters: chuyển về numeric, thay NaN = 0, loại bỏ giá trị âm và quá lớn
+    df_clean['fuel_liters'] = pd.to_numeric(df_clean['fuel_liters'], errors='coerce').fillna(0)
+    df_clean['fuel_liters'] = df_clean['fuel_liters'].apply(lambda x: max(0, min(x, 1000)) if pd.notna(x) else 0)
     
-    # FIXED: Clean distance_km - không dùng parse_distance nữa vì đã là float64
-    df['distance_km'] = pd.to_numeric(df['distance_km'], errors='coerce').fillna(0)
-    # Remove unrealistic values
-    df['distance_km'] = df['distance_km'].apply(lambda x: x if (x >= 0 and x <= 2000) else 0)
+    # Clean distance_km: tương tự
+    df_clean['distance_km'] = pd.to_numeric(df_clean['distance_km'], errors='coerce').fillna(0)
+    df_clean['distance_km'] = df_clean['distance_km'].apply(lambda x: max(0, min(x, 5000)) if pd.notna(x) else 0)
     
-    # FIXED: Lọc dữ liệu hợp lệ (có cả nhiên liệu và quãng đường > 0)
-    fuel_data = df[
-        (df['fuel_liters'] > 0) & 
-        (df['distance_km'] > 0) &
-        (df['fuel_liters'] <= 1000) &  # Reasonable fuel limit
-        (df['distance_km'] <= 2000)   # Reasonable distance limit
-    ].copy()
+    # BƯỚC 2: Tính toán cho từng xe - KHÔNG loại bỏ xe nào
+    st.markdown("#### 📊 Debug - Thông tin dữ liệu")
+    total_records = len(df_clean)
+    total_vehicles = df_clean['vehicle_id'].nunique()
+    records_with_fuel = len(df_clean[df_clean['fuel_liters'] > 0])
+    records_with_distance = len(df_clean[df_clean['distance_km'] > 0])
     
-    if fuel_data.empty:
-        st.warning("⚠️ Không có dữ liệu nhiên liệu hợp lệ")
-        st.info("Kiểm tra xem có chuyến nào có cả dữ liệu nhiên liệu VÀ quãng đường > 0 không")
-        return
+    st.info(f"""
+    **📊 Tổng quan dữ liệu:**
+    - Tổng số records: {total_records:,}
+    - Tổng số xe: {total_vehicles}
+    - Records có fuel > 0: {records_with_fuel:,} ({records_with_fuel/total_records*100:.1f}%)
+    - Records có distance > 0: {records_with_distance:,} ({records_with_distance/total_records*100:.1f}%)
+    """)
     
-    # FIXED: Tính mức tiêu thụ nhiên liệu (lít/100km) - công thức đúng
-    fuel_data['fuel_consumption_per_100km'] = (fuel_data['fuel_liters'] / fuel_data['distance_km']) * 100
+    # BƯỚC 3: Tính toán cho từng xe
+    vehicle_analysis = []
+    all_vehicles = sorted(df_clean['vehicle_id'].unique())
     
-    # FIXED: Loại bỏ outliers (mức tiêu thụ không hợp lý)
-    initial_count = len(fuel_data)
-    fuel_data = fuel_data[
-        (fuel_data['fuel_consumption_per_100km'] >= 5) &    # Minimum reasonable consumption
-        (fuel_data['fuel_consumption_per_100km'] <= 100)     # Maximum reasonable consumption
-    ]
+    st.markdown(f"#### 🔍 Phân tích {len(all_vehicles)} xe")
     
-    removed_outliers = initial_count - len(fuel_data)
-    if removed_outliers > 0:
-        st.sidebar.info(f"ℹ️ Đã loại bỏ {removed_outliers} chuyến có mức tiêu thụ bất thường")
-    
-    if fuel_data.empty:
-        st.warning("⚠️ Không có dữ liệu nhiên liệu hợp lệ sau khi lọc outliers")
-        return
-    
-    # Phân tích theo xe (bao gồm cả xe KHÔNG có fuel_data hợp lệ)
-    vehicle_fuel_analysis = []
-    all_vehicles = df['vehicle_id'].unique()  # dùng toàn bộ danh sách xe gốc
-
-    for vehicle in all_vehicles:
-        vehicle_data = fuel_data[fuel_data['vehicle_id'] == vehicle]
-
-        if vehicle_data.empty:
-            # Không có chuyến hợp lệ sau khi lọc ⇒ thêm hàng placeholder
-            vehicle_fuel_analysis.append({
-                'vehicle_id': vehicle,
-                'total_fuel': 0.0,
-                'total_distance': 0.0,
-                'avg_consumption': 0.0,
-                'standard': FUEL_STANDARDS.get(vehicle, 0),
-                'deviation': 0.0,
-                'deviation_percent': 0.0,
-                'trips_count': 0,
-                'status': '⚪ Thiếu dữ liệu',
-                'status_color': 'gray'
-            })
-            continue
-
-        # ---- Có dữ liệu hợp lệ: tính chỉ số như cũ ----
+    for vehicle_id in all_vehicles:
+        vehicle_data = df_clean[df_clean['vehicle_id'] == vehicle_id].copy()
+        
+        # Thông tin cơ bản
+        total_trips = len(vehicle_data)
         total_fuel = float(vehicle_data['fuel_liters'].sum())
         total_distance = float(vehicle_data['distance_km'].sum())
-        trips_count = len(vehicle_data)
-        avg_consumption = float(vehicle_data['fuel_consumption_per_100km'].mean())
-
-        standard = FUEL_STANDARDS.get(vehicle, None)
-        if standard:
+        
+        # Số chuyến có fuel và distance
+        trips_with_fuel = len(vehicle_data[vehicle_data['fuel_liters'] > 0])
+        trips_with_distance = len(vehicle_data[vehicle_data['distance_km'] > 0])
+        trips_with_both = len(vehicle_data[(vehicle_data['fuel_liters'] > 0) & (vehicle_data['distance_km'] > 0)])
+        
+        # Tính mức tiêu thụ
+        if total_distance > 0 and total_fuel > 0:
+            # Công thức đơn giản: tổng fuel / tổng distance * 100
+            avg_consumption = (total_fuel / total_distance) * 100
+        else:
+            avg_consumption = 0.0
+        
+        # So sánh với định mức
+        standard = FUEL_STANDARDS.get(vehicle_id, None)
+        if standard and avg_consumption > 0:
             deviation = avg_consumption - standard
             deviation_percent = (deviation / standard) * 100
+            
             if deviation > 2:
                 status = "🔴 Vượt định mức"
                 status_color = "red"
@@ -1719,214 +1710,214 @@ def create_fuel_analysis_tab(df):
                 status = "🟡 Trong định mức"
                 status_color = "orange"
         else:
-            status = "⚪ Chưa có định mức"
-            status_color = "gray"
             deviation = 0
             deviation_percent = 0
-
-        vehicle_fuel_analysis.append({
-            'vehicle_id': vehicle,
+            if standard is None:
+                status = "⚪ Chưa có định mức"
+            elif total_fuel == 0:
+                status = "⚫ Không có dữ liệu fuel"
+            elif total_distance == 0:
+                status = "⚫ Không có dữ liệu distance"
+            else:
+                status = "⚫ Không có dữ liệu"
+            status_color = "gray"
+        
+        # Thêm vào danh sách
+        vehicle_analysis.append({
+            'vehicle_id': vehicle_id,
+            'total_trips': total_trips,
             'total_fuel': total_fuel,
             'total_distance': total_distance,
+            'trips_with_fuel': trips_with_fuel,
+            'trips_with_distance': trips_with_distance,
+            'trips_with_both': trips_with_both,
             'avg_consumption': avg_consumption,
             'standard': standard if standard else 0,
             'deviation': deviation,
             'deviation_percent': deviation_percent,
-            'trips_count': trips_count,
             'status': status,
             'status_color': status_color
         })
     
-    vehicle_fuel_df = pd.DataFrame(vehicle_fuel_analysis)
+    # Chuyển thành DataFrame
+    vehicle_fuel_df = pd.DataFrame(vehicle_analysis)
     
-    # Overview metrics
+    # BƯỚC 4: Hiển thị overview
     st.markdown("#### 📊 Tổng quan tiêu thụ nhiên liệu")
+    
+    # Chỉ tính cho xe có dữ liệu
+    vehicles_with_data = vehicle_fuel_df[
+        (vehicle_fuel_df['total_fuel'] > 0) & 
+        (vehicle_fuel_df['total_distance'] > 0)
+    ]
+    
+    total_fuel_fleet = vehicles_with_data['total_fuel'].sum()
+    total_distance_fleet = vehicles_with_data['total_distance'].sum()
+    avg_consumption_fleet = (total_fuel_fleet / total_distance_fleet * 100) if total_distance_fleet > 0 else 0
+    
+    vehicles_over_standard = len(vehicle_fuel_df[vehicle_fuel_df['deviation'] > 2])
+    vehicles_efficient = len(vehicle_fuel_df[vehicle_fuel_df['deviation'] < -1])
+    vehicles_no_data = len(vehicle_fuel_df[vehicle_fuel_df['avg_consumption'] == 0])
+    
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        total_fuel_consumed = fuel_data['fuel_liters'].sum()
         st.metric(
             label="⛽ Tổng nhiên liệu",
-            value=f"{total_fuel_consumed:,.1f} lít",
-            help="Tổng lượng nhiên liệu tiêu thụ"
+            value=f"{total_fuel_fleet:,.1f} lít",
+            help=f"Tổng lượng nhiên liệu của {len(vehicles_with_data)} xe có dữ liệu"
         )
     
     with col2:
-        avg_consumption_fleet = fuel_data['fuel_consumption_per_100km'].mean()
         st.metric(
-            label="📊 TB tiêu thụ đội xe",
+            label="📊 TB tiêu thụ đội xe", 
             value=f"{avg_consumption_fleet:.1f} L/100km",
-            help="Mức tiêu thụ trung bình của toàn đội xe"
+            help="Mức tiêu thụ trung bình (tổng fuel / tổng km)"
         )
     
     with col3:
-        vehicles_over_standard = len(vehicle_fuel_df[vehicle_fuel_df['deviation'] > 2])
         st.metric(
             label="🔴 Xe vượt định mức",
             value=f"{vehicles_over_standard}",
-            help="Số xe tiêu thụ vượt định mức > 2L/100km"
+            help="Xe tiêu thụ vượt định mức > 2L/100km"
         )
     
     with col4:
-        vehicles_efficient = len(vehicle_fuel_df[vehicle_fuel_df['deviation'] < -1])
         st.metric(
-            label="🟢 Xe tiết kiệm",
-            value=f"{vehicles_efficient}",
-            help="Số xe tiêu thụ thấp hơn định mức > 1L/100km"
+            label="⚫ Xe thiếu dữ liệu",
+            value=f"{vehicles_no_data}",
+            help="Xe không có dữ liệu fuel hoặc distance"
         )
     
-    # Charts
-    col1, col2 = st.columns(2)
+    # BƯỚC 5: Bảng chi tiết TẤT CẢ xe
+    st.markdown("#### 📋 Bảng chi tiết TẤT CẢ xe")
     
-    with col1:
-        st.markdown("#### 📊 So sánh tiêu thụ với định mức")
+    # Sắp xếp: xe có dữ liệu trước, theo mức tiêu thụ
+    display_df = vehicle_fuel_df.copy()
+    display_df['sort_key'] = display_df.apply(lambda x: (
+        0 if x['avg_consumption'] > 0 else 1,  # Xe có dữ liệu trước
+        -x['avg_consumption']  # Tiêu thụ cao trước
+    ), axis=1)
+    display_df = display_df.sort_values(['sort_key', 'vehicle_id'])
+    
+    # Tạo bảng hiển thị
+    display_table = pd.DataFrame({
+        'Mã xe': display_df['vehicle_id'],
+        'Tổng chuyến': display_df['total_trips'],
+        'Chuyến có fuel': display_df['trips_with_fuel'],
+        'Chuyến có distance': display_df['trips_with_distance'],
+        'Tổng fuel (L)': display_df['total_fuel'].round(1),
+        'Tổng distance (km)': display_df['total_distance'].round(1),
+        'Tiêu thụ (L/100km)': display_df['avg_consumption'].round(2),
+        'Định mức (L/100km)': display_df['standard'],
+        'Chênh lệch (L/100km)': display_df['deviation'].round(2),
+        'Trạng thái': display_df['status']
+    })
+    
+    # Style cho bảng
+    def highlight_status(val):
+        if '🔴' in str(val):
+            return 'background-color: #ffebee'
+        elif '🟢' in str(val):
+            return 'background-color: #e8f5e8'
+        elif '🟡' in str(val):
+            return 'background-color: #fff8e1'
+        elif '⚫' in str(val):
+            return 'background-color: #f5f5f5'
+        return ''
+    
+    st.dataframe(
+        display_table.style.applymap(highlight_status, subset=['Trạng thái']),
+        use_container_width=True,
+        height=500
+    )
+    
+    # BƯỚC 6: Biểu đồ so sánh
+    st.markdown("#### 📊 Biểu đồ so sánh với định mức")
+    
+    # Chỉ hiển thị xe có cả dữ liệu và định mức
+    chart_data = vehicle_fuel_df[
+        (vehicle_fuel_df['avg_consumption'] > 0) & 
+        (vehicle_fuel_df['standard'] > 0)
+    ].copy()
+    
+    if not chart_data.empty:
+        col1, col2 = st.columns(2)
         
-        # Tạo dữ liệu cho biểu đồ so sánh
-        comparison_data = []
-        for _, row in vehicle_fuel_df.iterrows():
-            if row['standard'] > 0:  # Chỉ hiển thị xe có định mức
-                comparison_data.append({
-                    'Xe': row['vehicle_id'],
-                    'Thực tế': row['avg_consumption'],
-                    'Định mức': row['standard'],
-                    'Trạng thái': row['status_color']
-                })
-        
-        if comparison_data:
-            comparison_df = pd.DataFrame(comparison_data)
-            
+        with col1:
+            # Biểu đồ so sánh
             fig_comparison = go.Figure()
             
-            # Thêm cột định mức
+            # Cột định mức
             fig_comparison.add_trace(go.Bar(
                 name='Định mức',
-                x=comparison_df['Xe'],
-                y=comparison_df['Định mức'],
+                x=chart_data['vehicle_id'],
+                y=chart_data['standard'],
                 marker_color='lightblue',
                 opacity=0.7
             ))
             
-            # Thêm cột thực tế với màu theo trạng thái
-            colors = comparison_df['Trạng thái'].map({
+            # Cột thực tế với màu theo trạng thái
+            colors = chart_data['status_color'].map({
                 'red': 'red',
-                'green': 'green', 
+                'green': 'green',
                 'orange': 'orange',
                 'gray': 'gray'
             })
             
             fig_comparison.add_trace(go.Bar(
                 name='Thực tế',
-                x=comparison_df['Xe'],
-                y=comparison_df['Thực tế'],
+                x=chart_data['vehicle_id'],
+                y=chart_data['avg_consumption'],
                 marker_color=colors
             ))
             
             fig_comparison.update_layout(
-                title="So sánh tiêu thụ thực tế vs định mức (L/100km)",
+                title="So sánh tiêu thụ thực tế vs định mức",
                 xaxis_title="Mã xe",
-                yaxis_title="Lít/100km",
+                yaxis_title="L/100km",
                 barmode='group',
                 height=400
             )
             
             st.plotly_chart(fig_comparison, use_container_width=True)
-        else:
-            st.info("Không có xe nào có định mức để so sánh")
-    
-    with col2:
-        st.markdown("#### 📈 Xu hướng tiêu thụ theo thời gian")
         
-        if 'date' in fuel_data.columns:
-            daily_consumption = fuel_data.groupby('date').agg({
-                'fuel_liters': 'sum',
-                'distance_km': 'sum'
-            }).reset_index()
+        with col2:
+            # Biểu đồ phân tán
+            fig_scatter = px.scatter(
+                chart_data,
+                x='standard',
+                y='avg_consumption',
+                hover_data=['vehicle_id', 'total_trips'],
+                title="Ma trận: Định mức vs Thực tế",
+                labels={'standard': 'Định mức (L/100km)', 'avg_consumption': 'Thực tế (L/100km)'},
+                color='status_color',
+                color_discrete_map={'red': 'red', 'green': 'green', 'orange': 'orange'}
+            )
             
-            # FIXED: Chỉ tính cho ngày có cả fuel và distance > 0
-            daily_consumption = daily_consumption[
-                (daily_consumption['fuel_liters'] > 0) & 
-                (daily_consumption['distance_km'] > 0)
-            ]
+            # Thêm đường y=x (lý tưởng)
+            max_val = max(chart_data['standard'].max(), chart_data['avg_consumption'].max())
+            fig_scatter.add_shape(
+                type="line",
+                x0=0, y0=0, x1=max_val, y1=max_val,
+                line=dict(color="black", dash="dash"),
+            )
             
-            if not daily_consumption.empty:
-                daily_consumption['daily_consumption'] = (daily_consumption['fuel_liters'] / daily_consumption['distance_km']) * 100
-                daily_consumption = daily_consumption.sort_values('date')
-                
-                fig_trend = px.line(
-                    daily_consumption,
-                    x='date',
-                    y='daily_consumption',
-                    title="Xu hướng tiêu thụ nhiên liệu hàng ngày",
-                    labels={'daily_consumption': 'L/100km', 'date': 'Ngày'}
-                )
-                
-                # Thêm đường trung bình
-                avg_line = daily_consumption['daily_consumption'].mean()
-                fig_trend.add_hline(y=avg_line, line_dash="dash", line_color="red",
-                                   annotation_text=f"TB: {avg_line:.1f}L/100km")
-                
-                fig_trend.update_layout(height=400)
-                st.plotly_chart(fig_trend, use_container_width=True)
-            else:
-                st.info("Không có đủ dữ liệu để hiển thị xu hướng")
-        else:
-            st.info("Không có dữ liệu thời gian")
+            fig_scatter.update_layout(height=400)
+            st.plotly_chart(fig_scatter, use_container_width=True)
+    else:
+        st.info("Không có xe nào có đủ dữ liệu và định mức để so sánh")
     
-    # Distribution analysis
-    col3, col4 = st.columns(2)
+    # BƯỚC 7: Danh sách xe cần chú ý
+    st.markdown("#### ⚠️ Xe cần chú ý")
     
-    with col3:
-        st.markdown("#### 📊 Phân bố mức tiêu thụ")
-        
-        fig_dist = px.histogram(
-            fuel_data,
-            x='fuel_consumption_per_100km',
-            nbins=20,
-            title="Phân bố mức tiêu thụ nhiên liệu",
-            labels={'fuel_consumption_per_100km': 'L/100km', 'count': 'Số chuyến'}
-        )
-        
-        # Thêm các đường thống kê
-        mean_consumption = fuel_data['fuel_consumption_per_100km'].mean()
-        median_consumption = fuel_data['fuel_consumption_per_100km'].median()
-        
-        fig_dist.add_vline(x=mean_consumption, line_dash="dash", line_color="red",
-                          annotation_text=f"TB: {mean_consumption:.1f}")
-        fig_dist.add_vline(x=median_consumption, line_dash="dash", line_color="blue",
-                          annotation_text=f"Trung vị: {median_consumption:.1f}")
-        
-        fig_dist.update_layout(height=400)
-        st.plotly_chart(fig_dist, use_container_width=True)
+    col1, col2 = st.columns(2)
     
-    with col4:
-        st.markdown("#### 🎯 Top xe tiêu thụ nhiều nhất")
-        
-        top_consumers = vehicle_fuel_df.nlargest(10, 'avg_consumption')[['vehicle_id', 'avg_consumption', 'standard', 'status']]
-        
-        fig_top = px.bar(
-            top_consumers,
-            x='vehicle_id',
-            y='avg_consumption',
-            title="Top 10 xe tiêu thụ nhiên liệu cao",
-            labels={'avg_consumption': 'L/100km', 'vehicle_id': 'Mã xe'},
-            color='avg_consumption',
-            color_continuous_scale='Reds'
-        )
-        fig_top.update_layout(height=400)
-        st.plotly_chart(fig_top, use_container_width=True)
-    
-    # Efficiency analysis
-    st.markdown("#### ⚡ Phân tích hiệu quả nhiên liệu")
-    
-    col5, col6 = st.columns(2)
-    
-    with col5:
-        st.markdown("**🔴 Xe cần cải thiện (vượt định mức > 2L/100km):**")
-        
-        problematic_vehicles = vehicle_fuel_df[vehicle_fuel_df['deviation'] > 2].sort_values('deviation', ascending=False)
-        
-        if not problematic_vehicles.empty:
-            for _, vehicle in problematic_vehicles.iterrows():
+    with col1:
+        st.markdown("**🔴 Xe vượt định mức:**")
+        over_vehicles = vehicle_fuel_df[vehicle_fuel_df['deviation'] > 2].sort_values('deviation', ascending=False)
+        if not over_vehicles.empty:
+            for _, vehicle in over_vehicles.iterrows():
                 st.error(
                     f"🚗 **{vehicle['vehicle_id']}**: {vehicle['avg_consumption']:.1f}L/100km "
                     f"(định mức: {vehicle['standard']}L/100km, vượt: +{vehicle['deviation']:.1f}L)"
@@ -1934,57 +1925,20 @@ def create_fuel_analysis_tab(df):
         else:
             st.success("✅ Không có xe nào vượt định mức đáng kể!")
     
-    with col6:
-        st.markdown("**🟢 Xe hoạt động hiệu quả (thấp hơn định mức > 1L/100km):**")
-        
-        efficient_vehicles = vehicle_fuel_df[vehicle_fuel_df['deviation'] < -1].sort_values('deviation')
-        
-        if not efficient_vehicles.empty:
-            for _, vehicle in efficient_vehicles.iterrows():
-                st.success(
-                    f"🚗 **{vehicle['vehicle_id']}**: {vehicle['avg_consumption']:.1f}L/100km "
-                    f"(định mức: {vehicle['standard']}L/100km, tiết kiệm: {abs(vehicle['deviation']):.1f}L)"
+    with col2:
+        st.markdown("**⚫ Xe thiếu dữ liệu:**")
+        no_data_vehicles = vehicle_fuel_df[vehicle_fuel_df['avg_consumption'] == 0]
+        if not no_data_vehicles.empty:
+            for _, vehicle in no_data_vehicles.iterrows():
+                st.warning(
+                    f"🚗 **{vehicle['vehicle_id']}**: {vehicle['status']} "
+                    f"(fuel: {vehicle['trips_with_fuel']}/{vehicle['total_trips']}, "
+                    f"distance: {vehicle['trips_with_distance']}/{vehicle['total_trips']})"
                 )
         else:
-            st.info("ℹ️ Chưa có xe nào tiết kiệm nhiên liệu đáng kể")
+            st.success("✅ Tất cả xe đều có dữ liệu!")
     
-    # Detailed fuel table
-    st.markdown("#### 📋 Bảng chi tiết tiêu thụ nhiên liệu")
-    
-    # Chuẩn bị dữ liệu hiển thị
-    display_df = vehicle_fuel_df.copy()
-    display_df = display_df.sort_values('avg_consumption', ascending=False)
-    
-    # Format cho hiển thị
-    display_table = pd.DataFrame({
-        'Mã xe': display_df['vehicle_id'],
-        'Tiêu thụ thực tế (L/100km)': display_df['avg_consumption'].round(1),
-        'Định mức (L/100km)': display_df['standard'],
-        'Chênh lệch (L/100km)': display_df['deviation'].round(1),
-        'Chênh lệch (%)': display_df['deviation_percent'].round(1),
-        'Tổng nhiên liệu (L)': display_df['total_fuel'].round(1),
-        'Tổng quãng đường (km)': display_df['total_distance'].round(1),
-        'Số chuyến': display_df['trips_count'],
-        'Trạng thái': display_df['status']
-    })
-    
-    # Hiển thị bảng với style
-    def highlight_fuel_status(val):
-        if '🔴' in str(val):
-            return 'background-color: #ffebee'
-        elif '🟢' in str(val):
-            return 'background-color: #e8f5e8'
-        elif '🟡' in str(val):
-            return 'background-color: #fff8e1'
-        return ''
-    
-    st.dataframe(
-        display_table.style.applymap(highlight_fuel_status, subset=['Trạng thái']),
-        use_container_width=True,
-        height=400
-    )
-    
-    # Fuel cost estimation (optional)
+    # BƯỚC 8: Chi phí nhiên liệu
     st.markdown("#### 💰 Ước tính chi phí nhiên liệu")
     
     fuel_price = st.number_input(
@@ -1992,111 +1946,71 @@ def create_fuel_analysis_tab(df):
         value=25000,
         min_value=20000,
         max_value=35000,
-        step=1000,
-        help="Nhập giá nhiên liệu hiện tại"
+        step=1000
     )
     
-    total_fuel_cost = total_fuel_consumed * fuel_price
+    total_fuel_cost = total_fuel_fleet * fuel_price
     
-    col7, col8, col9 = st.columns(3)
+    col1, col2, col3 = st.columns(3)
     
-    with col7:
+    with col1:
         st.metric(
             label="💰 Tổng chi phí nhiên liệu",
             value=f"{total_fuel_cost:,.0f} VNĐ",
-            help=f"Dựa trên giá {fuel_price:,} VNĐ/lít"
+            help=f"Dựa trên {total_fuel_fleet:.1f}L × {fuel_price:,} VNĐ/L"
         )
     
-    with col8:
-        # Tính chi phí nếu tất cả xe đạt định mức
-        standard_consumption = 0
-        actual_consumption = 0
-        
-        for _, vehicle in vehicle_fuel_df.iterrows():
-            if vehicle['standard'] > 0:
-                vehicle_distance = vehicle['total_distance']
-                standard_consumption += (vehicle['standard'] / 100) * vehicle_distance
-                actual_consumption += (vehicle['avg_consumption'] / 100) * vehicle_distance
-        
-        if standard_consumption > 0:
-            potential_savings = (actual_consumption - standard_consumption) * fuel_price
+    with col2:
+        if total_distance_fleet > 0:
+            cost_per_100km = (total_fuel_cost / total_distance_fleet) * 100
             st.metric(
-                label="💸 Lãng phí do vượt định mức",
-                value=f"{potential_savings:,.0f} VNĐ",
-                delta=f"{potential_savings/total_fuel_cost*100:.1f}% tổng chi phí" if potential_savings > 0 else "Không có lãng phí",
-                help="Số tiền có thể tiết kiệm nếu tất cả xe đạt định mức"
+                label="📊 Chi phí/100km",
+                value=f"{cost_per_100km:,.0f} VNĐ",
+                help="Chi phí nhiên liệu trung bình cho 100km"
             )
     
-    with col9:
-        avg_cost_per_100km = (total_fuel_cost / fuel_data['distance_km'].sum() * 100) if fuel_data['distance_km'].sum() > 0 else 0
+    with col3:
+        # Tính tiết kiệm nếu đạt định mức
+        potential_savings = 0
+        for _, vehicle in vehicles_with_data.iterrows():
+            if vehicle['standard'] > 0 and vehicle['deviation'] > 0:
+                excess_consumption = (vehicle['deviation'] / 100) * vehicle['total_distance']
+                potential_savings += excess_consumption * fuel_price
+        
         st.metric(
-            label="📊 Chi phí TB/100km",
-            value=f"{avg_cost_per_100km:,.0f} VNĐ",
-            help="Chi phí nhiên liệu trung bình cho 100km"
+            label="💸 Tiết kiệm tiềm năng",
+            value=f"{potential_savings:,.0f} VNĐ",
+            help="Số tiền có thể tiết kiệm nếu xe vượt định mức về đúng mức"
         )
     
-    # Recommendations
-    st.markdown("#### 💡 Khuyến nghị")
-    
-    recommendations = []
-    
-    # Xe vượt định mức
-    if vehicles_over_standard > 0:
-        recommendations.append(
-            f"🔧 **Bảo dưỡng khẩn cấp**: {vehicles_over_standard} xe vượt định mức cần kiểm tra động cơ, hệ thống nhiên liệu"
-        )
-    
-    # Xe tiết kiệm
-    if vehicles_efficient > 0:
-        recommendations.append(
-            f"🏆 **Học hỏi kinh nghiệm**: {vehicles_efficient} xe hoạt động hiệu quả, áp dụng cách vận hành cho xe khác"
-        )
-    
-    # Phân tích xu hướng
-    if 'date' in fuel_data.columns and len(daily_consumption) > 7:
-        recent_trend = daily_consumption.tail(7)['daily_consumption'].mean()
-        overall_avg = daily_consumption['daily_consumption'].mean()
+    # BƯỚC 9: Debug chi tiết
+    if st.checkbox("🔧 Debug - Xem tính toán chi tiết"):
+        st.markdown("### 🔧 Debug - Tính toán chi tiết")
         
-        if recent_trend > overall_avg * 1.1:
-            recommendations.append(
-                "📈 **Cảnh báo xu hướng**: Tiêu thụ nhiên liệu tăng trong 7 ngày gần đây, cần điều tra nguyên nhân"
-            )
-        elif recent_trend < overall_avg * 0.9:
-            recommendations.append(
-                "📉 **Xu hướng tích cực**: Tiêu thụ nhiên liệu giảm trong 7 ngày gần đây, duy trì thói quen tốt"
-            )
-    
-    if not recommendations:
-        recommendations.append("✅ **Tình hình ổn định**: Đội xe đang hoạt động trong mức bình thường")
-    
-    for rec in recommendations:
-        st.info(rec)
-    
-    # FIXED: Debug calculation example
-    if st.sidebar.checkbox("🔧 Debug - Ví dụ tính toán", help="Hiển thị ví dụ tính toán chi tiết"):
-        st.markdown("### 🔧 Debug - Ví dụ tính toán chi tiết")
+        selected_vehicle = st.selectbox(
+            "Chọn xe để xem chi tiết:",
+            options=all_vehicles,
+            index=0
+        )
         
-        if not vehicle_fuel_df.empty:
-            example_vehicle_data = vehicle_fuel_df.iloc[0]
-            vehicle_id = example_vehicle_data['vehicle_id']
+        if selected_vehicle:
+            vehicle_detail = df_clean[df_clean['vehicle_id'] == selected_vehicle].copy()
+            vehicle_summary = vehicle_fuel_df[vehicle_fuel_df['vehicle_id'] == selected_vehicle].iloc[0]
             
-            st.write(f"**Ví dụ tính toán cho xe {vehicle_id}:**")
+            st.write(f"**Chi tiết xe {selected_vehicle}:**")
+            st.write(f"- Tổng chuyến: {vehicle_summary['total_trips']}")
+            st.write(f"- Chuyến có fuel > 0: {vehicle_summary['trips_with_fuel']}")
+            st.write(f"- Chuyến có distance > 0: {vehicle_summary['trips_with_distance']}")
+            st.write(f"- Tổng fuel: {vehicle_summary['total_fuel']:.1f}L")
+            st.write(f"- Tổng distance: {vehicle_summary['total_distance']:.1f}km")
+            st.write(f"- Tính toán: {vehicle_summary['total_fuel']:.1f} ÷ {vehicle_summary['total_distance']:.1f} × 100 = {vehicle_summary['avg_consumption']:.2f}L/100km")
+            st.write(f"- Định mức: {vehicle_summary['standard']}L/100km")
+            st.write(f"- Trạng thái: {vehicle_summary['status']}")
             
-            sample_trips = fuel_data[fuel_data['vehicle_id'] == vehicle_id].head(3)
-            if not sample_trips.empty:
-                calc_demo = sample_trips[['distance_km', 'fuel_liters', 'fuel_consumption_per_100km']].copy()
-                calc_demo['Tính toán check'] = (calc_demo['fuel_liters'] / calc_demo['distance_km']) * 100
-                
-                st.dataframe(calc_demo)
-                st.write(f"**Công thức**: (fuel_liters / distance_km) × 100")
-                st.write(f"**Trung bình xe {vehicle_id}**: {example_vehicle_data['avg_consumption']:.2f} L/100km")
-                if example_vehicle_data['standard'] > 0:
-                    st.write(f"**Định mức**: {example_vehicle_data['standard']} L/100km")
-                    st.write(f"**Chênh lệch**: {example_vehicle_data['deviation']:.2f} L/100km")
-                    st.write(f"**Trạng thái**: {example_vehicle_data['status']}")
-            else:
-                st.write("Không có dữ liệu mẫu cho xe này")
-                
+            st.markdown("**Sample dữ liệu thô:**")
+            sample_data = vehicle_detail[['fuel_liters', 'distance_km']].head(10)
+            st.dataframe(sample_data)
+
 def create_detailed_analysis_section(df):
     """Create detailed analysis section with tabs"""
     st.markdown("---")
