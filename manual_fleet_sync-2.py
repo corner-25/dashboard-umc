@@ -76,7 +76,7 @@ class ManualFleetSync:
             "nguyenhung091281@gmail.com": "Nguyễn Hùng",
             "nguyemthanhtrung12345@gmail.com": "Thành Trung",
             "nguyenhungumc@gmail.com": "Nguyễn Hùng",
-            "dvo567947@gmail.com": "Đức",
+            "dvo567947@gmail.com": "Thanh Dũng",
             "traannhtuan461970@gmail.com": "Anh Tuấn",
             "hoanganhsie1983@gmail.com": "Hoàng Anh",
             "hoanganhsieumc@gmail.com": "Hoàng Anh",
