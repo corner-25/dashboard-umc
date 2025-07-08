@@ -1,8 +1,21 @@
-streamlit>=1.28.0
-pandas>=2.2.0
-numpy>=1.24.0
-plotly>=5.17.0
-requests>=2.31.0
-python-dotenv>=1.0.0
-openpyxl>=3.1.0
-xlsxwriter>=3.1.0
+# Core dashboard dependencies
+streamlit
+pandas
+numpy
+plotly
+requests
+
+# Google API dependencies
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+google-api-python-client
+
+# Additional utilities
+python-dotenv
+openpyxl
+xlsxwriter
+
+# Optional: for better performance
+pyarrow
+fastparquet
