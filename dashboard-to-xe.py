@@ -9,6 +9,7 @@ import pandas as pd
 import numpy as np
 import requests
 import subprocess
+from io import BytesIO
 import os
 from dotenv import load_dotenv
 import sys
@@ -18,6 +19,18 @@ import base64
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+
+# --------------------------------------------------------------------
+# Bypass login nếu đã authenticated ở dashboard tổng
+if 'authenticated' in st.session_state and st.session_state.authenticated:
+    def check_authentication():
+        """Luôn True khi đã đăng nhập ở dashboard chính."""
+        return True
+
+    def login_page():   # Nếu file gọi hàm này, ta vô hiệu hóa
+        st.session_state['skip_child_login'] = True
+        return
+# --------------------------------------------------------------------
 
 # Custom CSS
 st.markdown("""
@@ -2011,8 +2024,293 @@ def create_fuel_analysis_tab(df):
             sample_data = vehicle_detail[['fuel_liters', 'distance_km']].head(10)
             st.dataframe(sample_data)
 
+def create_export_report_tab(df, start_date, end_date):
+    """Tab 6: Xuất báo cáo theo từng xe"""
+    st.markdown("### 📊 Báo cáo theo từng xe")
+    st.markdown(f"**📅 Khoảng thời gian:** {start_date.strftime('%d/%m/%Y')} - {end_date.strftime('%d/%m/%Y')}")
+    
+    if df.empty:
+        st.warning("⚠️ Không có dữ liệu để xuất báo cáo")
+        return
+    
+    # Tính toán báo cáo cho từng xe
+    vehicle_report = []
+    
+    for vehicle_id in sorted(df['vehicle_id'].unique()):
+        vehicle_data = df[df['vehicle_id'] == vehicle_id].copy()
+        
+        # Đảm bảo dữ liệu đúng kiểu
+        vehicle_data['revenue_vnd'] = pd.to_numeric(vehicle_data['revenue_vnd'], errors='coerce').fillna(0)
+        vehicle_data['distance_km'] = pd.to_numeric(vehicle_data['distance_km'], errors='coerce').fillna(0)
+        vehicle_data['fuel_liters'] = pd.to_numeric(vehicle_data['fuel_liters'], errors='coerce').fillna(0)
+        
+        # 1. BSX
+        bsx = vehicle_id
+        
+        # 2. Tổng km
+        total_km = vehicle_data['distance_km'].sum()
+        
+        # Phân loại theo nội/ngoại thành và có/không thu tiền
+        # Nội thành
+        noi_thanh = vehicle_data[vehicle_data['Nội thành/Ngoại thành'] == 'Nội thành'] if 'Nội thành/Ngoại thành' in vehicle_data.columns else pd.DataFrame()
+        ngoai_thanh = vehicle_data[vehicle_data['Nội thành/Ngoại thành'] == 'Ngoại thành'] if 'Nội thành/Ngoại thành' in vehicle_data.columns else pd.DataFrame()
+        
+        # 3. Số chuyến nội thành không thu tiền (revenue = 0)
+        chuyen_noi_thanh_ko_thu = len(noi_thanh[noi_thanh['revenue_vnd'] == 0]) if not noi_thanh.empty else 0
+        
+        # 4. Số chuyến nội thành có thu tiền (revenue > 0)
+        chuyen_noi_thanh_co_thu = len(noi_thanh[noi_thanh['revenue_vnd'] > 0]) if not noi_thanh.empty else 0
+        
+        # 5. Số chuyến ngoại thành không thu tiền (revenue = 0)
+        chuyen_ngoai_thanh_ko_thu = len(ngoai_thanh[ngoai_thanh['revenue_vnd'] == 0]) if not ngoai_thanh.empty else 0
+        
+        # 6. Số chuyến ngoại thành có thu tiền (revenue > 0)
+        chuyen_ngoai_thanh_co_thu = len(ngoai_thanh[ngoai_thanh['revenue_vnd'] > 0]) if not ngoai_thanh.empty else 0
+        
+        # 7. Số tiền thu từ các chuyến nội thành
+        tien_thu_noi_thanh = noi_thanh['revenue_vnd'].sum() if not noi_thanh.empty else 0
+        
+        # 8. Số tiền thu từ các chuyến ngoại thành
+        tien_thu_ngoai_thanh = ngoai_thanh['revenue_vnd'].sum() if not ngoai_thanh.empty else 0
+        
+        # 9. Tổng tiền thu (nội + ngoại thành)
+        tong_tien_thu = tien_thu_noi_thanh + tien_thu_ngoai_thanh
+        
+        # 10. Tổng nhiên liệu
+        tong_nhien_lieu = vehicle_data['fuel_liters'].sum()
+        
+        vehicle_report.append({
+            'BSX': bsx,
+            'Tổng km': round(total_km, 1),
+            'Chuyến nội thành (không thu tiền)': chuyen_noi_thanh_ko_thu,
+            'Chuyến nội thành (có thu tiền)': chuyen_noi_thanh_co_thu,
+            'Chuyến ngoại thành (không thu tiền)': chuyen_ngoai_thanh_ko_thu,
+            'Chuyến ngoại thành (có thu tiền)': chuyen_ngoai_thanh_co_thu,
+            'Tiền thu nội thành (VNĐ)': round(tien_thu_noi_thanh, 0),
+            'Tiền thu ngoại thành (VNĐ)': round(tien_thu_ngoai_thanh, 0),
+            'Tổng tiền thu (VNĐ)': round(tong_tien_thu, 0),
+            'Tổng nhiên liệu (Lít)': round(tong_nhien_lieu, 1)
+        })
+    
+    # Tạo DataFrame báo cáo
+    report_df = pd.DataFrame(vehicle_report)
+    
+    if report_df.empty:
+        st.warning("⚠️ Không có dữ liệu để tạo báo cáo")
+        return
+    
+    # Sắp xếp theo BSX
+    report_df = report_df.sort_values('BSX')
+    
+    # Hiển thị bảng báo cáo
+    st.markdown("#### 📋 Bảng báo cáo chi tiết")
+    
+    # Format hiển thị
+    styled_df = report_df.style.format({
+        'Tổng km': '{:.1f}',
+        'Tiền thu nội thành (VNĐ)': '{:,.0f}',
+        'Tiền thu ngoại thành (VNĐ)': '{:,.0f}',
+        'Tổng tiền thu (VNĐ)': '{:,.0f}',
+        'Tổng nhiên liệu (Lít)': '{:.1f}'
+    })
+    
+    st.dataframe(styled_df, use_container_width=True, height=400)
+    
+    # Thống kê tổng hợp
+    st.markdown("#### 📊 Thống kê tổng hợp")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric(
+            label="🚗 Tổng số xe",
+            value=f"{len(report_df)}",
+            help="Số xe có hoạt động trong khoảng thời gian"
+        )
+    
+    with col2:
+        st.metric(
+            label="🛣️ Tổng km",
+            value=f"{report_df['Tổng km'].sum():,.1f} km",
+            help="Tổng quãng đường của tất cả xe"
+        )
+    
+    with col3:
+        st.metric(
+            label="💰 Tổng doanh thu",
+            value=f"{report_df['Tổng tiền thu (VNĐ)'].sum():,.0f} VNĐ",
+            help="Tổng doanh thu của tất cả xe"
+        )
+    
+    with col4:
+        st.metric(
+            label="⛽ Tổng nhiên liệu",
+            value=f"{report_df['Tổng nhiên liệu (Lít)'].sum():,.1f} L",
+            help="Tổng nhiên liệu tiêu thụ của tất cả xe"
+        )
+    
+    # Phân tích theo khu vực
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### 🏙️ Thống kê chuyến nội thành")
+        tong_chuyen_noi_thanh = report_df['Chuyến nội thành (không thu tiền)'].sum() + report_df['Chuyến nội thành (có thu tiền)'].sum()
+        tong_tien_noi_thanh = report_df['Tiền thu nội thành (VNĐ)'].sum()
+        
+        st.info(f"""
+        📈 **Chuyến không thu tiền:** {report_df['Chuyến nội thành (không thu tiền)'].sum():,}
+        💰 **Chuyến có thu tiền:** {report_df['Chuyến nội thành (có thu tiền)'].sum():,}
+        📊 **Tổng chuyến:** {tong_chuyen_noi_thanh:,}
+        💵 **Tổng doanh thu:** {tong_tien_noi_thanh:,.0f} VNĐ
+        """)
+    
+    with col2:
+        st.markdown("#### 🌆 Thống kê chuyến ngoại thành")
+        tong_chuyen_ngoai_thanh = report_df['Chuyến ngoại thành (không thu tiền)'].sum() + report_df['Chuyến ngoại thành (có thu tiền)'].sum()
+        tong_tien_ngoai_thanh = report_df['Tiền thu ngoại thành (VNĐ)'].sum()
+        
+        st.info(f"""
+        📈 **Chuyến không thu tiền:** {report_df['Chuyến ngoại thành (không thu tiền)'].sum():,}
+        💰 **Chuyến có thu tiền:** {report_df['Chuyến ngoại thành (có thu tiền)'].sum():,}
+        📊 **Tổng chuyến:** {tong_chuyen_ngoai_thanh:,}
+        💵 **Tổng doanh thu:** {tong_tien_ngoai_thanh:,.0f} VNĐ
+        """)
+    
+    # Biểu đồ so sánh
+    st.markdown("#### 📊 Biểu đồ so sánh")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Biểu đồ doanh thu theo xe
+        top_10_revenue = report_df.nlargest(10, 'Tổng tiền thu (VNĐ)')
+        
+        if not top_10_revenue.empty:
+            fig_revenue = px.bar(
+                top_10_revenue,
+                x='BSX',
+                y='Tổng tiền thu (VNĐ)',
+                title="Top 10 xe có doanh thu cao nhất",
+                labels={'Tổng tiền thu (VNĐ)': 'Doanh thu (VNĐ)', 'BSX': 'Biển số xe'},
+                color='Tổng tiền thu (VNĐ)',
+                color_continuous_scale='Blues'
+            )
+            fig_revenue.update_layout(height=400)
+            st.plotly_chart(fig_revenue, use_container_width=True)
+    
+    with col2:
+        # Biểu đồ km theo xe
+        top_10_km = report_df.nlargest(10, 'Tổng km')
+        
+        if not top_10_km.empty:
+            fig_km = px.bar(
+                top_10_km,
+                x='BSX',
+                y='Tổng km',
+                title="Top 10 xe chạy xa nhất",
+                labels={'Tổng km': 'Quãng đường (km)', 'BSX': 'Biển số xe'},
+                color='Tổng km',
+                color_continuous_scale='Greens'
+            )
+            fig_km.update_layout(height=400)
+            st.plotly_chart(fig_km, use_container_width=True)
+    
+    # Xuất file
+    st.markdown("#### 💾 Xuất báo cáo")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        # Xuất Excel
+        excel_filename = f"bao_cao_xe_{start_date.strftime('%d%m%Y')}_{end_date.strftime('%d%m%Y')}.xlsx"
+        
+        try:
+            from io import BytesIO
+            output = BytesIO()
+            
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                # Sheet chính - báo cáo chi tiết
+                report_df.to_excel(writer, sheet_name='Báo cáo chi tiết', index=False)
+                
+                # Sheet tổng hợp
+                summary_data = {
+                    'Chỉ số': [
+                        'Tổng số xe',
+                        'Tổng km',
+                        'Tổng chuyến nội thành',
+                        'Tổng chuyến ngoại thành',
+                        'Tổng doanh thu nội thành',
+                        'Tổng doanh thu ngoại thành',
+                        'Tổng doanh thu',
+                        'Tổng nhiên liệu'
+                    ],
+                    'Giá trị': [
+                        len(report_df),
+                        f"{report_df['Tổng km'].sum():.1f} km",
+                        tong_chuyen_noi_thanh,
+                        tong_chuyen_ngoai_thanh,
+                        f"{tong_tien_noi_thanh:,.0f} VNĐ",
+                        f"{tong_tien_ngoai_thanh:,.0f} VNĐ",
+                        f"{report_df['Tổng tiền thu (VNĐ)'].sum():,.0f} VNĐ",
+                        f"{report_df['Tổng nhiên liệu (Lít)'].sum():.1f} L"
+                    ]
+                }
+                
+                summary_df = pd.DataFrame(summary_data)
+                summary_df.to_excel(writer, sheet_name='Tổng hợp', index=False)
+                
+                # Thêm metadata
+                metadata = pd.DataFrame({
+                    'Thông tin': [
+                        'Khoảng thời gian',
+                        'Ngày tạo báo cáo',
+                        'Số xe có hoạt động',
+                        'Tổng chuyến',
+                        'Ghi chú'
+                    ],
+                    'Chi tiết': [
+                        f"{start_date.strftime('%d/%m/%Y')} - {end_date.strftime('%d/%m/%Y')}",
+                        datetime.now().strftime('%d/%m/%Y %H:%M:%S'),
+                        len(report_df),
+                        len(df),
+                        'Báo cáo được tạo từ Dashboard Quản lý Tổ Xe'
+                    ]
+                })
+                metadata.to_excel(writer, sheet_name='Thông tin', index=False)
+            
+            output.seek(0)
+            
+            st.download_button(
+                label="📥 Tải Excel",
+                data=output.getvalue(),
+                file_name=excel_filename,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+            
+        except Exception as e:
+            st.error(f"❌ Lỗi tạo file Excel: {e}")
+    
+    with col2:
+        # Xuất CSV
+        csv_filename = f"bao_cao_xe_{start_date.strftime('%d%m%Y')}_{end_date.strftime('%d%m%Y')}.csv"
+        csv_data = report_df.to_csv(index=False, encoding='utf-8-sig')
+        
+        st.download_button(
+            label="📥 Tải CSV",
+            data=csv_data,
+            file_name=csv_filename,
+            mime="text/csv",
+            use_container_width=True
+        )
+    
+    with col3:
+        # In báo cáo
+        if st.button("🖨️ In báo cáo", use_container_width=True):
+            st.info("💡 Sử dụng Ctrl+P để in trang hoặc xuất PDF từ trình duyệt")
+
 def create_detailed_analysis_section(df):
-    """Create detailed analysis section with tabs"""
+    """Create detailed analysis section with tabs - UPDATED with Export tab"""
     st.markdown("---")
     st.markdown("## 📈 Phân tích chi tiết và Biểu đồ trực quan")
     
@@ -2030,13 +2328,14 @@ def create_detailed_analysis_section(df):
         st.info("Chạy lệnh: pip install plotly")
         return
     
-    # Create tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    # Create tabs - ADDED 6th tab
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "💰 Doanh thu", 
         "🚗 Hiệu suất xe", 
         "⚡ Phân tích quá tải", 
         "🛣️ Phân tích quãng đường",
-        "⛽ Phân tích nhiên liệu"
+        "⛽ Phân tích nhiên liệu",
+        "📊 Xuất báo cáo"
     ])
     
     with tab1:
@@ -2053,6 +2352,19 @@ def create_detailed_analysis_section(df):
 
     with tab5:
         create_fuel_analysis_tab(df)
+    
+    with tab6:
+        # Get date range from sidebar filters (from session state)
+        if 'date_filter_start' in st.session_state and 'date_filter_end' in st.session_state:
+            start_date = st.session_state.date_filter_start
+            end_date = st.session_state.date_filter_end
+        else:
+            # Fallback to data range if session state not available
+            min_date, max_date = get_date_range_from_data(df)
+            start_date = min_date
+            end_date = max_date
+        
+        create_export_report_tab(df, start_date, end_date)
 
 def create_driver_performance_table(df):
     """Create driver performance table using English columns"""
@@ -2177,7 +2489,7 @@ def main():
         <h1 style='
             color:#1f77b4;
             margin:0;
-            font-size:3rem;
+            font-size:3.2rem;
             font-weight:bold;
             font-family:"Segoe UI", Arial, sans-serif;
             text-shadow:2px 2px 4px rgba(0,0,0,0.1);
