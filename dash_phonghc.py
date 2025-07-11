@@ -1,19 +1,19 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
+import requests
+import subprocess
+import os
+from dotenv import load_dotenv
+import sys
+from datetime import datetime
+import json
+import base64
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
-import numpy as np
-import os
-from pathlib import Path
-import json
-import requests
-import base64
-import hashlib
-import time
+from plotly.subplots import make_subplots
 
-
-# CSS tùy chỉnh
+    
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@400;700&display=swap');
@@ -580,7 +580,26 @@ class PivotTableDashboard:
             "Số thư ký tham gia tập huấn, đào tạo": 63,
             "Số buổi tham quan, học tập": 64,
             "Số thư ký tham gia tham quan, học tập": 65,
+            # ======= THÊM CÁC BIẾN THỂ CÓ THỂ =======
+            # Biến thể có khoảng trắng thừa
+            " Tổng số thư ký": 57,
+            "Tổng số thư ký ": 57,
+            " Tổng số thư ký ": 57,
             
+            # Biến thể có ký tự đặc biệt
+            "Tổng số thư ký:": 57,
+            "- Tổng số thư ký": 57,
+            "• Tổng số thư ký": 57,
+            
+            # Biến thể viết hoa/thường
+            "TỔNG SỐ THƯ KÝ": 57,
+            "tổng số thư ký": 57,
+            
+            # Biến thể từ khóa tương tự
+            "Tống số thư ký": 57,  # Typo có thể
+            "Tổng số thư kí": 57,  # Ký/kí
+            "Tổng thư ký": 57,     # Thiếu "số"
+            # =========================================
             # Bãi giữ xe
             "Tổng số lượt vé ngày": 66,
             "Tổng số lượt vé tháng": 67,
@@ -588,6 +607,144 @@ class PivotTableDashboard:
             "Doanh thu": 69,
             "Số phản ánh khiếu nại": 70
         }
+        self.content_aggregation = {
+        # TRUNG BÌNH - Cho các tỷ lệ %
+        "Tỷ lệ hài lòng của khách hàng": "mean",
+        "Tỷ lệ hài lòng khách hàng": "mean",  # Biến thể
+        "Ty le hai long cua khach hang": "mean",  # Biến thể không dấu
+        
+        # DỮ LIỆU MỚI NHẤT - Cho các chỉ số tổng số (snapshot)
+        "Tổng số thư ký": "last",
+        "- Thư ký hành chính": "last", 
+        "- Thư ký chuyên môn": "last",
+        "Thư ký hành chính": "last",
+        "Thư ký chuyên môn": "last",
+        " Thư ký hành chính": "last",  # Biến thể có space
+        " Thư ký chuyên môn": "last",
+        
+        # Có thể thêm các nội dung khác cần xử lý đặc biệt
+        "Công suất trung bình/ngày": "mean",  # Công suất là trung bình
+        "Công suất trung bình": "mean",
+        
+        # Các chỉ số tài chính có thể cần lấy mới nhất
+        "Doanh thu": "sum",  # Doanh thu thì cộng dồn
+        "Chi phí bảo dưỡng": "sum",  # Chi phí thì cộng dồn
+        
+        # DEFAULT: Tất cả các nội dung khác sẽ dùng 'sum'
+    }
+    
+    def get_aggregation_method(self, content):
+        """Lấy phương pháp aggregation phù hợp cho nội dung"""
+        if pd.isna(content):
+            return "sum"
+        
+        # Thử tên chính xác
+        if content in self.content_aggregation:
+            return self.content_aggregation[content]
+        
+        # Thử tên đã chuẩn hóa đơn giản
+        normalized = str(content).strip().strip('- •:')
+        if normalized in self.content_aggregation:
+            return self.content_aggregation[normalized]
+        
+        # Thử tìm bằng keyword
+        content_lower = str(content).lower().strip()
+        
+        # Tỷ lệ % -> mean
+        if any(keyword in content_lower for keyword in ['tỷ lệ', 'ty le', '%', 'phần trăm']):
+            return "mean"
+        
+        # Tổng số thư ký -> last
+        if any(keyword in content_lower for keyword in ['tổng số', 'tong so']) and 'thư ký' in content_lower:
+            return "last"
+        
+        # Thư ký con -> last
+        if any(keyword in content_lower for keyword in ['thư ký hành chính', 'thư ký chuyên môn', 'thu ky hanh chinh', 'thu ky chuyen mon']):
+            return "last"
+        
+        # Trung bình -> mean
+        if any(keyword in content_lower for keyword in ['trung bình', 'trung binh', 'tb']):
+            return "mean"
+        
+        # Mặc định: sum
+        return "sum"
+
+    def apply_smart_aggregation(self, data, index_cols, column_cols, value_col):
+        """Áp dụng aggregation thông minh theo từng nội dung"""
+        try:
+            # Group dữ liệu theo index và columns
+            if column_cols:
+                group_cols = index_cols + column_cols
+            else:
+                group_cols = index_cols
+            
+            # Tạo dictionary để store aggregated data
+            result_data = []
+            
+            # Group theo các cột cần thiết
+            for group_keys, group_data in data.groupby(group_cols):
+                if not isinstance(group_keys, tuple):
+                    group_keys = (group_keys,)
+                
+                # Tạo dict cho group này
+                result_row = {}
+                
+                # Assign index values
+                for i, col in enumerate(group_cols):
+                    result_row[col] = group_keys[i]
+                
+                # Lấy nội dung để xác định aggregation method
+                if 'Nội dung' in group_data.columns:
+                    content = group_data['Nội dung'].iloc[0]
+                    agg_method = self.get_aggregation_method(content)
+                    
+                    # Áp dụng aggregation method
+                    if agg_method == "mean":
+                        result_row[value_col] = group_data[value_col].mean()
+                    elif agg_method == "last":
+                        # Lấy dữ liệu mới nhất (tuần cao nhất)
+                        if 'Tuần' in group_data.columns:
+                            latest_week_data = group_data[group_data['Tuần'] == group_data['Tuần'].max()]
+                            result_row[value_col] = latest_week_data[value_col].iloc[-1]
+                        else:
+                            result_row[value_col] = group_data[value_col].iloc[-1]
+                    else:  # sum (default)
+                        result_row[value_col] = group_data[value_col].sum()
+                else:
+                    # Fallback to sum
+                    result_row[value_col] = group_data[value_col].sum()
+                
+                result_data.append(result_row)
+            
+            # Convert back to DataFrame
+            result_df = pd.DataFrame(result_data)
+            
+            # Create pivot table
+            if column_cols:
+                pivot = pd.pivot_table(
+                    result_df,
+                    index=index_cols,
+                    columns=column_cols,
+                    values=value_col,
+                    aggfunc='first',  # Data đã được aggregate rồi
+                    fill_value=0
+                )
+            else:
+                pivot = result_df.set_index(index_cols)[value_col]
+            
+            return pivot
+            
+        except Exception as e:
+            st.error(f"Lỗi trong smart aggregation: {str(e)}")
+            # Fallback to normal pivot
+            return pd.pivot_table(
+                data,
+                index=index_cols,
+                columns=column_cols if column_cols else None,
+                values=value_col,
+                aggfunc='sum',
+                fill_value=0
+            )    
         
     def load_data_from_dataframe(self, df):
         """THÊM METHOD MỚI: Load dữ liệu từ DataFrame"""
@@ -916,7 +1073,6 @@ class PivotTableDashboard:
         return f"{value_str} <span class='{color_class}'>({symbol}{ratio_text})</span>"
     
     def create_hierarchical_pivot_table_with_ratio(self, data, rows, cols, values, agg_func, show_ratio_inline):
-        """Tạo pivot table với hiển thị phân cấp và biến động inline"""
         try:
             if not rows and not cols:
                 st.warning("Vui lòng chọn ít nhất một chiều cho dòng hoặc cột")
@@ -926,26 +1082,52 @@ class PivotTableDashboard:
             if 'Danh mục' in rows:
                 data = data.sort_values(['Danh_mục_thứ_tự', 'Nội_dung_thứ_tự'])
             
+            # ========== SỬ DỤNG SMART AGGREGATION ==========
             # Tạo pivot table cho giá trị chính
             if cols:
-                pivot = pd.pivot_table(
-                    data,
-                    index=rows if rows else None,
-                    columns=cols,
-                    values=values,
-                    aggfunc=agg_func,
-                    fill_value=0,
-                    margins=False
-                )
+                pivot = self.apply_smart_aggregation(data, rows, cols, values)
+                
+                # ============= SẮP XẾP CỘT TUẦN GIẢM DẦN =============
+                if 'Tuần' in cols and hasattr(pivot, 'columns'):
+                    # Lấy danh sách cột hiện tại
+                    current_columns = list(pivot.columns)
+                    
+                    # Tách cột tuần và cột khác
+                    week_columns = []
+                    other_columns = []
+                    
+                    for col in current_columns:
+                        try:
+                            # Kiểm tra xem có phải là số tuần không
+                            week_num = int(str(col).strip())
+                            if 1 <= week_num <= 53:  # Tuần hợp lệ
+                                week_columns.append(col)
+                            else:
+                                other_columns.append(col)
+                        except (ValueError, TypeError):
+                            other_columns.append(col)
+                    
+                    # Sắp xếp tuần theo thứ tự GIẢM DẦN (tuần cao nhất trước)
+                    week_columns_sorted = sorted(week_columns, key=lambda x: int(str(x)), reverse=True)
+                    
+                    # Tái tạo thứ tự cột: tuần (giảm dần) + cột khác
+                    new_column_order = week_columns_sorted + other_columns
+                    
+                    # Reindex pivot table với thứ tự mới
+                    pivot = pivot.reindex(columns=new_column_order)
+                    
+                    st.sidebar.info(f"📅 Hiển thị từ tuần {max(week_columns)} → tuần {min(week_columns)}")
+                # ====================================================
                 
                 # Sửa lỗi mixed column types
                 if isinstance(pivot.columns, pd.MultiIndex):
                     pivot.columns = pivot.columns.map(str)
                 else:
                     pivot.columns = [str(col) for col in pivot.columns]
-                    
+                        
             else:
-                pivot = data.groupby(rows)[values].agg(agg_func)
+                pivot = self.apply_smart_aggregation(data, rows, None, values)
+            # ===============================================
             
             # Nếu cần hiển thị biến động inline (CHỈ CHO BÁO CÁO THEO TUẦN)
             if show_ratio_inline and cols and 'Tuần' in cols:
@@ -954,16 +1136,31 @@ class PivotTableDashboard:
                 
                 if not ratio_data.empty:
                     try:
-                        # Tạo pivot table cho giá trị gốc
-                        main_pivot = pd.pivot_table(
-                            data,
-                            index=rows if rows else None,
-                            columns=cols,
-                            values='Số liệu',
-                            aggfunc=agg_func,
-                            fill_value=0,
-                            margins=False
-                        )
+                        # Tạo pivot table cho giá trị gốc với smart aggregation
+                        main_pivot = self.apply_smart_aggregation(data, rows, cols, 'Số liệu')
+                        
+                        # ============= SẮP XẾP CỘT CHO MAIN_PIVOT =============
+                        if hasattr(main_pivot, 'columns'):
+                            current_columns = list(main_pivot.columns)
+                            week_columns = []
+                            other_columns = []
+                            
+                            for col in current_columns:
+                                try:
+                                    week_num = int(str(col).strip())
+                                    if 1 <= week_num <= 53:
+                                        week_columns.append(col)
+                                    else:
+                                        other_columns.append(col)
+                                except (ValueError, TypeError):
+                                    other_columns.append(col)
+                            
+                            # Sắp xếp tuần giảm dần
+                            week_columns_sorted = sorted(week_columns, key=lambda x: int(str(x)), reverse=True)
+                            new_column_order = week_columns_sorted + other_columns
+                            
+                            main_pivot = main_pivot.reindex(columns=new_column_order)
+                        # ====================================================
                         
                         # Tạo pivot table cho tỷ lệ biến động
                         ratio_pivot = pd.pivot_table(
@@ -974,6 +1171,28 @@ class PivotTableDashboard:
                             aggfunc='mean',
                             fill_value=None
                         )
+                        
+                        # ============= SẮP XẾP CỘT CHO RATIO_PIVOT =============
+                        if hasattr(ratio_pivot, 'columns'):
+                            current_columns = list(ratio_pivot.columns)
+                            week_columns = []
+                            other_columns = []
+                            
+                            for col in current_columns:
+                                try:
+                                    week_num = int(str(col).strip())
+                                    if 1 <= week_num <= 53:
+                                        week_columns.append(col)
+                                    else:
+                                        other_columns.append(col)
+                                except (ValueError, TypeError):
+                                    other_columns.append(col)
+                            
+                            week_columns_sorted = sorted(week_columns, key=lambda x: int(str(x)), reverse=True)
+                            new_column_order = week_columns_sorted + other_columns
+                            
+                            ratio_pivot = ratio_pivot.reindex(columns=new_column_order)
+                        # ====================================================
                         
                         # Tạo combined pivot với biến động
                         combined_pivot = main_pivot.copy()
@@ -994,15 +1213,39 @@ class PivotTableDashboard:
                                 # Không có biến động - chỉ hiển thị số
                                 combined_pivot.loc[idx, col] = f"{main_value:,.0f}".replace(',', '.')
                         
-                        # THÊM CỘT TỔNG
+                        # THÊM CỘT TỔNG - SMART AGGREGATION
                         combined_pivot['Tổng'] = ""
                         for idx in combined_pivot.index:
+                            # Lấy nội dung để xác định cách tính tổng
+                            if isinstance(idx, tuple) and len(idx) > 1:
+                                content = idx[1]  # Nội dung thường ở vị trí thứ 2
+                            else:
+                                content = str(idx)
+                            
+                            agg_method = self.get_aggregation_method(content)
+                            
                             row_total = 0
+                            row_count = 0
+                            
                             for col in main_pivot.columns:
                                 val = main_pivot.loc[idx, col]
-                                if pd.notna(val):
-                                    row_total += float(val)
-                            combined_pivot.loc[idx, 'Tổng'] = f"{row_total:,.0f}".replace(',', '.')
+                                if pd.notna(val) and val != 0:
+                                    if agg_method == "mean":
+                                        row_total += float(val)
+                                        row_count += 1
+                                    elif agg_method == "last":
+                                        # Với 'last', lấy giá trị mới nhất (cột đầu tiên)
+                                        row_total = float(val)
+                                        break
+                                    else:  # sum
+                                        row_total += float(val)
+                            
+                            # Format tổng
+                            if agg_method == "mean" and row_count > 0:
+                                avg_value = row_total / row_count
+                                combined_pivot.loc[idx, 'Tổng'] = f"{avg_value:,.1f}".replace(',', '.')
+                            else:
+                                combined_pivot.loc[idx, 'Tổng'] = f"{row_total:,.0f}".replace(',', '.')
                         
                         return combined_pivot
                         
@@ -1019,17 +1262,43 @@ class PivotTableDashboard:
                     for col in pivot_formatted.columns:
                         val = pivot.loc[idx, col]
                         if pd.notna(val):
-                            pivot_formatted.loc[idx, col] = f"{int(val):,}".replace(',', '.')
+                            pivot_formatted.loc[idx, col] = f"{val:,.1f}".replace(',', '.')
                 
-                # Thêm cột tổng
+                # THÊM CỘT TỔNG - SMART AGGREGATION
                 pivot_formatted['Tổng'] = ""
                 for idx in pivot_formatted.index:
+                    # Lấy nội dung để xác định cách tính tổng
+                    if isinstance(idx, tuple) and len(idx) > 1:
+                        content = idx[1]  # Nội dung thường ở vị trí thứ 2
+                    else:
+                        content = str(idx)
+                    
+                    agg_method = self.get_aggregation_method(content)
+                    
                     row_total = 0
+                    row_count = 0
+                    
                     for col in pivot.columns:
                         val = pivot.loc[idx, col]
-                        if pd.notna(val):
-                            row_total += int(val)
-                    pivot_formatted.loc[idx, 'Tổng'] = f"{row_total:,}".replace(',', '.')
+                        if pd.notna(val) and val != 0:
+                            if agg_method == "mean":
+                                row_total += float(val)
+                                row_count += 1
+                            elif agg_method == "last":
+                                # Với 'last', lấy giá trị mới nhất (cột đầu tiên)
+                                row_total = float(val)
+                                break
+                            else:  # sum
+                                row_total += float(val)
+                    
+                    # Format tổng
+                    if agg_method == "mean" and row_count > 0:
+                        avg_value = row_total / row_count
+                        pivot_formatted.loc[idx, 'Tổng'] = f"{avg_value:,.1f}".replace(',', '.')
+                    elif agg_method == "last":
+                        pivot_formatted.loc[idx, 'Tổng'] = f"{row_total:,.0f}".replace(',', '.')
+                    else:
+                        pivot_formatted.loc[idx, 'Tổng'] = f"{row_total:,.0f}".replace(',', '.')
                 
                 return pivot_formatted
             
@@ -1038,7 +1307,7 @@ class PivotTableDashboard:
         except Exception as e:
             st.error(f"Lỗi tạo pivot table: {str(e)}")
             return None
-    
+
     def display_category_sparklines(self, category_data, category_name, report_type):
         """Hiển thị sparklines cho từng nội dung trong danh mục"""
         try:
@@ -1659,6 +1928,19 @@ class PivotTableDashboard:
             return None
 
 def main():
+    if 'authenticated' in st.session_state and st.session_state.authenticated:
+        # Đã đăng nhập ở main dashboard - bypass login hoàn toàn
+        pass
+    else:
+        # Chưa đăng nhập - redirect về main dashboard
+        st.error("🔒 Bạn cần đăng nhập để truy cập dashboard này!")
+        st.info("👆 Vui lòng quay lại trang chính để đăng nhập.")
+        
+        if st.button("🏠 Quay lại trang chính", use_container_width=True):
+            st.query_params.clear()
+            st.switch_page("main_dashboard.py")  # Hoặc redirect về main
+        return
+        
     # HEADER: logo + title on one line (flexbox)
     try:
         # Encode logo to base64 for inline <img>
