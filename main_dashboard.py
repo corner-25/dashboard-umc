@@ -26,18 +26,19 @@ st.set_page_config(
 st.markdown("""
 <style>
     .main-header {
-        background: linear-gradient(90deg, #1f77b4, #2e86ab);
+        background: #ffffff;
         padding: 2rem;
         border-radius: 15px;
         text-align: center;
         margin-bottom: 2rem;
-        color: white;
+        color: #0066CC;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
     
     .main-title {
         font-size: 2.5rem;
         font-weight: bold;
+        color: #0066CC;
         margin-bottom: 0.5rem;
         text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
     }
@@ -45,6 +46,7 @@ st.markdown("""
     .main-subtitle {
         font-size: 1.2rem;
         opacity: 0.9;
+        color: #0066CC;
         margin: 0;
     }
     
@@ -75,11 +77,11 @@ st.markdown("""
     }
     
     .dashboard-card.fleet {
-        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        background: #1cc88a;
     }
     
     .dashboard-card.admin {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: #4e73df;
     }
     
     .card-icon {
@@ -295,44 +297,40 @@ def dashboard_selection_page():
     st.markdown("*Chọn dashboard bạn muốn sử dụng:*")
     
     col1, col2 = st.columns(2)
-    
+
     with col1:
         st.markdown("""
-        <div class='dashboard-card admin'>
-            <div class='card-icon'>📋</div>
-            <div class='card-title'>Dashboard Số liệu Hành Chính</div>
-            <div class='card-description'>
-                Quản lý và báo cáo số liệu hoạt động:<br>
-                • Văn bản đến/đi<br>
-                • Sự kiện và lễ tân<br>
-                • Tổng đài và khách VIP<br>
-                • Pivot table với biến động
-            </div>
-        </div>
+        <a href='?nav=admin' style='text-decoration:none;'>
+          <div class='dashboard-card admin'>
+              <div class='card-icon'>📋</div>
+              <div class='card-title'>Dashboard Số liệu Hành Chính</div>
+              <div class='card-description'>
+                  Quản lý và báo cáo số liệu hoạt động:<br>
+                  • Văn bản đến/đi<br>
+                  • Sự kiện và lễ tân<br>
+                  • Tổng đài và khách VIP<br>
+                  • Pivot table với biến động
+              </div>
+          </div>
+        </a>
         """, unsafe_allow_html=True)
-        
-        if st.button("🚀 Mở Dashboard Hành Chính", key="open_admin", use_container_width=True):
-            st.session_state.selected_dashboard = "admin"
-            st.rerun()
-    
+
     with col2:
         st.markdown("""
-        <div class='dashboard-card fleet'>
-            <div class='card-icon'>🚗</div>
-            <div class='card-title'>Dashboard Quản lý Tổ Xe</div>
-            <div class='card-description'>
-                Quản lý hoạt động vận chuyển:<br>
-                • Theo dõi chuyến xe<br>
-                • Phân tích nhiên liệu<br>
-                • Hiệu suất tài xế<br>
-                • Báo cáo doanh thu
-            </div>
-        </div>
+        <a href='?nav=fleet' style='text-decoration:none;'>
+          <div class='dashboard-card fleet'>
+              <div class='card-icon'>🚗</div>
+              <div class='card-title'>Dashboard Quản lý Tổ Xe</div>
+              <div class='card-description'>
+                  Quản lý hoạt động vận chuyển:<br>
+                  • Theo dõi chuyến xe<br>
+                  • Phân tích nhiên liệu<br>
+                  • Hiệu suất tài xế<br>
+                  • Báo cáo doanh thu
+              </div>
+          </div>
+        </a>
         """, unsafe_allow_html=True)
-        
-        if st.button("🚀 Mở Dashboard Tổ Xe", key="open_fleet", use_container_width=True):
-            st.session_state.selected_dashboard = "fleet"
-            st.rerun()
     
     # Thống kê hệ thống
     st.markdown("---")
@@ -428,8 +426,15 @@ def dashboard_selection_page():
 
 def run_admin_dashboard():
     """Chạy dashboard hành chính"""
-    
     try:
+        # ============= ĐẢM BẢO AUTHENTICATION =============
+        # Đảm bảo session state vẫn có thông tin đăng nhập
+        if not st.session_state.get('authenticated', False):
+            st.error("❌ Phiên đăng nhập đã hết hạn!")
+            if 'selected_dashboard' in st.session_state:
+                del st.session_state['selected_dashboard']
+            st.rerun()
+            return
         # Debug info
         
         # Kiểm tra file tồn tại
@@ -475,7 +480,13 @@ def run_fleet_dashboard():
     """Chạy dashboard tổ xe"""
     
     try:
-                
+        if not st.session_state.get('authenticated', False):
+            st.error("❌ Phiên đăng nhập đã hết hạn!")
+            if 'selected_dashboard' in st.session_state:
+                del st.session_state['selected_dashboard']
+            st.rerun()
+            return
+        
         # Kiểm tra file tồn tại
         if not os.path.exists("dashboard-to-xe.py"):
             st.error("❌ Không tìm thấy file dashboard-to-xe.py")
@@ -543,59 +554,69 @@ def back_to_menu():
 
 def main():
     """Hàm main của dashboard tổng hợp"""
-    
+
+    # Điều hướng nhanh nếu người dùng nhấp thẳng vào thẻ dashboard
+    query_params = st.query_params
+    nav_value = query_params.get('nav')
+    if nav_value:
+        nav_target = nav_value[0] if isinstance(nav_value, list) else nav_value
+        if nav_target in ('admin', 'fleet'):
+            st.session_state.selected_dashboard = nav_target
+            # Xóa query param để tránh lặp vô hạn
+            st.query_params.clear()
+
     # Kiểm tra xác thực
     if not check_authentication():
         login_page()
         return
-    
+
     # Kiểm tra dashboard được chọn
     if 'selected_dashboard' not in st.session_state:
         dashboard_selection_page()
         return
-    
+
     # Sidebar navigation
     with st.sidebar:
         st.markdown("## 🧭 Điều hướng")
-        
+
         current_dashboard = st.session_state.selected_dashboard
-        
+
         if current_dashboard == "admin":
             st.success("📋 **Dashboard Hành Chính**")
             st.info("Đang xem dashboard số liệu hành chính")
         elif current_dashboard == "fleet":
             st.success("🚗 **Dashboard Tổ Xe**")
             st.info("Đang xem dashboard quản lý tổ xe")
-        
+
         st.markdown("---")
-        
+
         # Menu điều hướng
         if st.button("🏠 Menu chính", use_container_width=True):
             if 'selected_dashboard' in st.session_state:
                 del st.session_state['selected_dashboard']
             st.rerun()
-        
+
         if st.button("📋 Dashboard Hành Chính", use_container_width=True):
             st.session_state.selected_dashboard = "admin"
             st.rerun()
-        
+
         if st.button("🚗 Dashboard Tổ Xe", use_container_width=True):
             st.session_state.selected_dashboard = "fleet"
             st.rerun()
-        
+
         st.markdown("---")
-        
+
         if st.button("🚪 Đăng xuất", use_container_width=True):
             for key in ['authenticated', 'username', 'login_time', 'selected_dashboard']:
                 if key in st.session_state:
                     del st.session_state[key]
             st.rerun()
-        
+
         # Thông tin người dùng
         st.markdown("### 👤 Thông tin")
         st.success(f"**User:** {st.session_state.username}")
         st.info(f"**Login:** {st.session_state.login_time.strftime('%H:%M:%S')}")
-    
+
     # Chạy dashboard tương ứng
     if st.session_state.selected_dashboard == "admin":
         run_admin_dashboard()
