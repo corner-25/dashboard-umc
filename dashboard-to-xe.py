@@ -82,11 +82,10 @@ COLUMN_MAPPING = {
     'Email Address': None,  # Already converted to driver name
     'Ghi chú': None,  # Notes - not used for KPI
     'Chỉ số đồng hồ sau khi kết thúc chuyến xe': None,  # Odometer - already processed
-    'Ghi nhận chi tiết chuyến xe': None,  # Trip details - only for reporting
     
     # Core time fields
-    'Thời gian bắt đầu': 'start_time',
-    'Thời gian kết thúc': 'end_time', 
+    'start_time': 'start_time',
+    'end_time': 'end_time', 
     'Thời gian': 'duration_hours',  # Duration in hours (hh:mm format)
     
     # Location and classification
@@ -179,16 +178,16 @@ def ensure_duration_parsed(df):
     """
     Đảm bảo cột duration_hours được parse đúng trong toàn bộ DataFrame
     """
-    if 'Thời gian' not in df.columns:
+    if 'duration_hours' not in df.columns:
         return df
     
     # Kiểm tra xem cột đã là numeric chưa
-    if not pd.api.types.is_numeric_dtype(df['Thời gian']):
+    if not pd.api.types.is_numeric_dtype(df['duration_hours']):
         # Nếu chưa, parse từ string
-        df['Thời gian'] = df['Thời gian'].apply(parse_duration_to_hours)
+        df['duration_hours'] = df['duration_hours'].apply(parse_duration_to_hours)
     else:
         # Nếu đã là numeric nhưng có thể có NaN, fill 0
-        df['Thời gian'] = df['Thời gian'].fillna(0)
+        df['duration_hours'] = df['duration_hours'].fillna(0)
     
     return df
 
@@ -438,8 +437,8 @@ def process_dataframe(df):
         # STEP 4: Process data types
         
         # FIXED: Process duration - Convert to decimal hours using correct function name
-        if 'Thời gian' in df.columns:
-            df['Thời gian'] = df['Thời gian'].apply(parse_duration_to_hours)
+        if 'duration_hours' in df.columns:
+            df['duration_hours'] = df['duration_hours'].apply(parse_duration_to_hours)
         
         # Process distance - Handle negative values but keep all rows
         if 'distance_km' in df.columns:
@@ -755,7 +754,6 @@ def create_vehicle_filter_sidebar(df):
     
     return df
 
-# FIXED: create_metrics_overview() - ensure duration is parsed
 def create_metrics_overview(df):
     """Create overview metrics using English column names"""
     if df.empty:
@@ -767,12 +765,32 @@ def create_metrics_overview(df):
     # FIXED: Ensure duration is properly parsed
     df = ensure_duration_parsed(df)
     
-    # Use ALL data without any filtering
+    # Use ALL data without any filtering for total trips
     total_trips = len(df)
-    total_vehicles = df['vehicle_id'].nunique() if 'vehicle_id' in df.columns else 0
     
-    # Driver count
-    total_drivers = df['driver_name'].nunique() if 'driver_name' in df.columns else 0
+    # FIXED: Vehicle count - only count valid vehicle IDs
+    if 'vehicle_id' in df.columns:
+        valid_vehicles = df[
+            df['vehicle_id'].notna() & 
+            (df['vehicle_id'].astype(str).str.strip() != '') & 
+            (df['vehicle_id'] != 'nan') &
+            (df['vehicle_id'] != 'NaN')
+        ]
+        total_vehicles = valid_vehicles['vehicle_id'].nunique()
+    else:
+        total_vehicles = 0
+    
+    # FIXED: Driver count - only count valid driver names
+    if 'driver_name' in df.columns:
+        valid_drivers = df[
+            df['driver_name'].notna() & 
+            (df['driver_name'].astype(str).str.strip() != '') & 
+            (df['driver_name'] != 'nan') &
+            (df['driver_name'] != 'NaN')
+        ]
+        total_drivers = valid_drivers['driver_name'].nunique()
+    else:
+        total_drivers = 0
     
     # Revenue calculation
     if 'revenue_vnd' in df.columns:
@@ -785,15 +803,15 @@ def create_metrics_overview(df):
         avg_revenue_per_trip = 0
     
     # FIXED: Time calculation - ensure proper parsing
-    if 'Thời gian' in df.columns:
+    if 'duration_hours' in df.columns:
         # Filter out invalid time data (negative or extremely large values)
         valid_time_data = df[
-            df['Thời gian'].notna() & 
-            (df['Thời gian'] >= 0) & 
-            (df['Thời gian'] <= 24)  # Reasonable daily limit
+            df['duration_hours'].notna() & 
+            (df['duration_hours'] >= 0) & 
+            (df['duration_hours'] <= 24)  # Reasonable daily limit
         ]
-        total_hours = valid_time_data['Thời gian'].sum()
-        avg_hours_per_trip = valid_time_data['Thời gian'].mean() if len(valid_time_data) > 0 else 0
+        total_hours = valid_time_data['duration_hours'].sum()
+        avg_hours_per_trip = valid_time_data['duration_hours'].mean() if len(valid_time_data) > 0 else 0
     else:
         total_hours = 0
         avg_hours_per_trip = 0
@@ -870,7 +888,6 @@ def create_metrics_overview(df):
             value=f"{avg_hours_per_trip:.1f} giờ",
             help="Thời gian trung bình mỗi chuyến"
         )
-
 
 def create_frequency_metrics(df):
     """Create frequency and activity metrics using English columns"""
@@ -1019,8 +1036,8 @@ def create_vehicle_performance_table(df):
         df['revenue_vnd'] = 0
         
     # FIXED: Duration is already parsed by ensure_duration_parsed()
-    if 'Thời gian' not in df.columns:
-        df['Thời gian'] = 0
+    if 'duration_hours' not in df.columns:
+        df['duration_hours'] = 0
         
     if 'distance_km' in df.columns:
         df['distance_km'] = df['distance_km'].apply(parse_distance)
@@ -1046,11 +1063,11 @@ def create_vehicle_performance_table(df):
         
         # FIXED: Duration calculation - filter out invalid values
         valid_duration_data = vehicle_data[
-            vehicle_data['Thời gian'].notna() & 
-            (vehicle_data['Thời gian'] >= 0) & 
-            (vehicle_data['Thời gian'] <= 24)
+            vehicle_data['duration_hours'].notna() & 
+            (vehicle_data['duration_hours'] >= 0) & 
+            (vehicle_data['duration_hours'] <= 24)
         ]
-        total_hours = float(valid_duration_data['Thời gian'].sum())
+        total_hours = float(valid_duration_data['duration_hours'].sum())
         
         total_distance = float(vehicle_data['distance_km'].sum())
         total_fuel = float(vehicle_data['fuel_liters'].sum())
@@ -1125,90 +1142,419 @@ def create_revenue_analysis_tab(df):
         st.warning("⚠️ Không có chuyến xe có doanh thu")
         return
     
-    # Revenue by vehicle chart
+    # Ensure date parsing with correct format
+    if 'record_date' in revenue_data.columns:
+        # Parse dd/mm/yyyy format specifically
+        revenue_data['record_date'] = pd.to_datetime(revenue_data['record_date'], format='%d/%m/%Y', errors='coerce')
+        revenue_data['date'] = revenue_data['record_date'].dt.date
+        revenue_data['parsed_date'] = revenue_data['record_date']  # Keep datetime for week calculations
+    else:
+        revenue_data['parsed_date'] = None
+    
+    # Create daily_revenue for later use
+    daily_revenue = pd.DataFrame()
+    if 'date' in revenue_data.columns and revenue_data['date'].notna().any():
+        daily_revenue = revenue_data.groupby('date')['revenue_vnd'].sum().reset_index()
+        daily_revenue = daily_revenue.sort_values('date')
+    
+    # =================== OVERVIEW METRICS ===================
+    st.markdown("#### 📊 Tổng quan doanh thu")
+    
+    total_revenue = revenue_data['revenue_vnd'].sum()
+    avg_revenue_per_trip = revenue_data['revenue_vnd'].mean()
+    total_revenue_trips = len(revenue_data)
+    unique_vehicles = revenue_data['vehicle_id'].nunique() if 'vehicle_id' in revenue_data.columns else 0
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("💰 Tổng doanh thu", f"{total_revenue:,.0f} VNĐ")
+    with col2:
+        st.metric("📊 TB/chuyến", f"{avg_revenue_per_trip:,.0f} VNĐ")
+    with col3:
+        st.metric("🚗 Số chuyến có DT", f"{total_revenue_trips:,}")
+    with col4:
+        st.metric("🚙 Xe tham gia", f"{unique_vehicles}")
+    
+    # =================== MAIN CHARTS ===================
+    st.markdown("#### 📊 Biểu đồ phân tích chính")
+    
+    # Row 1: Top vehicles and time trend
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("#### 📊 Doanh thu theo xe")
-        vehicle_revenue = revenue_data.groupby('vehicle_id')['revenue_vnd'].agg(['sum', 'count', 'mean']).reset_index()
-        vehicle_revenue.columns = ['vehicle_id', 'total_revenue', 'trip_count', 'avg_revenue']
-        vehicle_revenue = vehicle_revenue.sort_values('total_revenue', ascending=False)
-        
-        fig_vehicle = px.bar(
-            vehicle_revenue.head(10),
-            x='vehicle_id',
-            y='total_revenue',
-            title="Top 10 xe có doanh thu cao nhất",
-            labels={'total_revenue': 'Doanh thu (VNĐ)', 'vehicle_id': 'Mã xe'},
-            color='total_revenue',
-            color_continuous_scale='Blues'
-        )
-        fig_vehicle.update_layout(height=400)
-        st.plotly_chart(fig_vehicle, use_container_width=True)
+        st.markdown("##### 📊 Doanh thu theo xe")
+        if 'vehicle_id' in revenue_data.columns:
+            vehicle_revenue = revenue_data.groupby('vehicle_id')['revenue_vnd'].agg(['sum', 'count', 'mean']).reset_index()
+            vehicle_revenue.columns = ['vehicle_id', 'total_revenue', 'trip_count', 'avg_revenue']
+            vehicle_revenue = vehicle_revenue.sort_values('total_revenue', ascending=False)
+            
+            fig_vehicle = px.bar(
+                vehicle_revenue.head(10),
+                x='vehicle_id',
+                y='total_revenue',
+                title="Top 10 xe có doanh thu cao nhất",
+                labels={'total_revenue': 'Doanh thu (VNĐ)', 'vehicle_id': 'Mã xe'},
+                color='total_revenue',
+                color_continuous_scale='Blues'
+            )
+            fig_vehicle.update_layout(height=400)
+            fig_vehicle.update_xaxes(tickangle=45)
+            st.plotly_chart(fig_vehicle, use_container_width=True)
+        else:
+            st.info("Không có dữ liệu xe")
     
     with col2:
-        st.markdown("#### 📈 Doanh thu theo thời gian")
-        if 'record_date' in revenue_data.columns:
-            daily_revenue = revenue_data.groupby('date')['revenue_vnd'].sum().reset_index()
-            daily_revenue = daily_revenue.sort_values('date')
+        st.markdown("##### 📈 Xu hướng doanh thu theo thời gian")
+        if not daily_revenue.empty:
+            # Add moving average
+            daily_revenue_plot = daily_revenue.copy()
+            daily_revenue_plot['MA_7'] = daily_revenue_plot['revenue_vnd'].rolling(window=7, min_periods=1).mean()
             
-            fig_time = px.line(
-                daily_revenue,
-                x='date',
-                y='revenue_vnd',
+            fig_time = go.Figure()
+            fig_time.add_trace(go.Scatter(
+                x=daily_revenue_plot['date'],
+                y=daily_revenue_plot['revenue_vnd'],
+                mode='lines+markers',
+                name='Doanh thu hàng ngày',
+                line=dict(color='lightblue', width=1),
+                marker=dict(size=4)
+            ))
+            fig_time.add_trace(go.Scatter(
+                x=daily_revenue_plot['date'],
+                y=daily_revenue_plot['MA_7'],
+                mode='lines',
+                name='Đường xu hướng (7 ngày)',
+                line=dict(color='red', width=2)
+            ))
+            fig_time.update_layout(
                 title="Xu hướng doanh thu theo ngày",
-                labels={'revenue_vnd': 'Doanh thu (VNĐ)', 'date': 'Ngày'}
+                xaxis_title="Ngày",
+                yaxis_title="Doanh thu (VNĐ)",
+                height=400
             )
-            fig_time.update_layout(height=400)
             st.plotly_chart(fig_time, use_container_width=True)
         else:
-            st.info("Không có dữ liệu thời gian để hiển thị xu hướng")
+            st.info("Không thể parse dữ liệu thời gian từ record_date (format dd/mm/yyyy)")
     
-    # Revenue distribution
-    col3, col4 = st.columns(2)
+    # =================== GROWTH ANALYSIS ===================
+    st.markdown("#### 📈 Phân tích tăng trưởng doanh thu")
     
-    with col3:
-        st.markdown("#### 📊 Phân bố doanh thu mỗi chuyến")
+    if not daily_revenue.empty and len(daily_revenue) > 1:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("##### 📊 Tăng trưởng theo ngày")
+            
+            # Calculate daily growth
+            daily_revenue_sorted = daily_revenue.sort_values('date').copy()
+            daily_revenue_sorted['prev_revenue'] = daily_revenue_sorted['revenue_vnd'].shift(1)
+            daily_revenue_sorted['growth_amount'] = daily_revenue_sorted['revenue_vnd'] - daily_revenue_sorted['prev_revenue']
+            daily_revenue_sorted['growth_percent'] = (daily_revenue_sorted['growth_amount'] / daily_revenue_sorted['prev_revenue'] * 100).fillna(0)
+            
+            # Filter out extreme values for better visualization
+            growth_data = daily_revenue_sorted[
+                (daily_revenue_sorted['growth_percent'].abs() <= 500) & 
+                (daily_revenue_sorted['growth_percent'].notna())
+            ]
+            
+            if not growth_data.empty:
+                fig_growth = px.bar(
+                    growth_data,
+                    x='date',
+                    y='growth_percent',
+                    title="Tăng trưởng doanh thu (% so với ngày trước)",
+                    labels={'growth_percent': 'Tăng trưởng (%)', 'date': 'Ngày'},
+                    color='growth_percent',
+                    color_continuous_scale='RdYlGn',
+                    color_continuous_midpoint=0
+                )
+                fig_growth.add_hline(y=0, line_dash="dash", line_color="black")
+                fig_growth.update_layout(height=400)
+                st.plotly_chart(fig_growth, use_container_width=True)
+                
+                # Growth stats
+                avg_growth = growth_data['growth_percent'].mean()
+                positive_days = len(growth_data[growth_data['growth_percent'] > 0])
+                negative_days = len(growth_data[growth_data['growth_percent'] < 0])
+                
+                st.info(f"""
+                **📊 Thống kê tăng trưởng:**
+                - Tăng trưởng TB: {avg_growth:.1f}%/ngày
+                - Ngày tăng: {positive_days} | Ngày giảm: {negative_days}
+                - Tỷ lệ ngày tăng: {positive_days/(positive_days+negative_days)*100:.1f}%
+                """)
+            else:
+                st.info("Không đủ dữ liệu để tính tăng trưởng")
+        
+        with col2:
+            st.markdown("##### 📊 So sánh theo khoảng thời gian")
+            
+            # Check if we have valid parsed dates
+            if 'parsed_date' in revenue_data.columns and revenue_data['parsed_date'].notna().any():
+                # Weekly comparison using properly parsed dates
+                valid_date_data = revenue_data[revenue_data['parsed_date'].notna()].copy()
+                valid_date_data['week'] = valid_date_data['parsed_date'].dt.isocalendar().week
+                valid_date_data['year'] = valid_date_data['parsed_date'].dt.year
+                valid_date_data['year_week'] = valid_date_data['year'].astype(str) + '-W' + valid_date_data['week'].astype(str).str.zfill(2)
+                
+                weekly_revenue = valid_date_data.groupby('year_week')['revenue_vnd'].sum().reset_index()
+                weekly_revenue = weekly_revenue.sort_values('year_week')
+                
+                if len(weekly_revenue) >= 2:
+                    weekly_revenue['prev_week'] = weekly_revenue['revenue_vnd'].shift(1)
+                    weekly_revenue['week_growth'] = ((weekly_revenue['revenue_vnd'] - weekly_revenue['prev_week']) / weekly_revenue['prev_week'] * 100).fillna(0)
+                    
+                    fig_weekly = px.bar(
+                        weekly_revenue.tail(8),  # Last 8 weeks
+                        x='year_week',
+                        y='week_growth',
+                        title="Tăng trưởng doanh thu theo tuần (%)",
+                        labels={'week_growth': 'Tăng trưởng (%)', 'year_week': 'Tuần'},
+                        color='week_growth',
+                        color_continuous_scale='RdYlGn',
+                        color_continuous_midpoint=0
+                    )
+                    fig_weekly.add_hline(y=0, line_dash="dash", line_color="black")
+                    fig_weekly.update_layout(height=400)
+                    fig_weekly.update_xaxes(tickangle=45)
+                    st.plotly_chart(fig_weekly, use_container_width=True)
+                    
+                    # Weekly stats
+                    avg_weekly_growth = weekly_revenue['week_growth'].mean()
+                    positive_weeks = len(weekly_revenue[weekly_revenue['week_growth'] > 0])
+                    negative_weeks = len(weekly_revenue[weekly_revenue['week_growth'] < 0])
+                    
+                    st.info(f"""
+                    **📊 Thống kê theo tuần:**
+                    - Tăng trưởng TB: {avg_weekly_growth:.1f}%/tuần
+                    - Tuần tăng: {positive_weeks} | Tuần giảm: {negative_weeks}
+                    - Có dữ liệu: {len(weekly_revenue)} tuần
+                    """)
+                else:
+                    st.info("Không đủ dữ liệu cho phân tích theo tuần (cần ít nhất 2 tuần)")
+            else:
+                st.warning("⚠️ Không thể parse ngày từ record_date (format dd/mm/yyyy) để phân tích theo tuần")
+    
+    # =================== ADVANCED ANALYSIS ===================
+    st.markdown("#### 🔍 Phân tích chuyên sâu")
+    
+    # Row 3: Distribution and comparison
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("##### 📊 Phân bố doanh thu mỗi chuyến")
+        
+        # Create histogram with statistics
         fig_dist = px.histogram(
             revenue_data,
             x='revenue_vnd',
-            nbins=20,
+            nbins=25,
             title="Phân bố doanh thu mỗi chuyến",
             labels={'revenue_vnd': 'Doanh thu (VNĐ)', 'count': 'Số chuyến'}
         )
+        
+        # Add statistics lines
+        mean_revenue = revenue_data['revenue_vnd'].mean()
+        median_revenue = revenue_data['revenue_vnd'].median()
+        q75_revenue = revenue_data['revenue_vnd'].quantile(0.75)
+        
+        fig_dist.add_vline(x=mean_revenue, line_dash="dash", line_color="red",
+                          annotation_text=f"TB: {mean_revenue:,.0f}")
+        fig_dist.add_vline(x=median_revenue, line_dash="dash", line_color="blue",
+                          annotation_text=f"Trung vị: {median_revenue:,.0f}")
+        fig_dist.add_vline(x=q75_revenue, line_dash="dash", line_color="green",
+                          annotation_text=f"Q75: {q75_revenue:,.0f}")
+        
         fig_dist.update_layout(height=400)
         st.plotly_chart(fig_dist, use_container_width=True)
     
-    with col4:
-        st.markdown("#### 👨‍💼 Doanh thu theo tài xế")
-        if 'driver_name' in revenue_data.columns:
-            driver_revenue = revenue_data.groupby('driver_name')['revenue_vnd'].sum().reset_index()
-            driver_revenue = driver_revenue.sort_values('revenue_vnd', ascending=False).head(10)
+    with col2:
+        st.markdown("##### 🎯 Doanh thu theo loại xe")
+        if 'vehicle_type' in revenue_data.columns:
+            type_revenue = revenue_data.groupby('vehicle_type').agg({
+                'revenue_vnd': ['sum', 'mean', 'count']
+            }).round(0)
+            type_revenue.columns = ['Tổng DT', 'TB DT/chuyến', 'Số chuyến']
+            type_revenue = type_revenue.reset_index()
             
-            fig_driver = px.pie(
-                driver_revenue,
-                values='revenue_vnd',
-                names='driver_name',
-                title="Top 10 tài xế theo doanh thu"
+            # Pie chart
+            fig_type_pie = px.pie(
+                type_revenue,
+                values='Tổng DT',
+                names='vehicle_type',
+                title="Phân bố doanh thu theo loại xe",
+                color_discrete_map={'Cứu thương': '#ff6b6b', 'Hành chính': '#4ecdc4'}
             )
-            fig_driver.update_layout(height=400)
-            st.plotly_chart(fig_driver, use_container_width=True)
+            fig_type_pie.update_layout(height=300)
+            st.plotly_chart(fig_type_pie, use_container_width=True)
+            
+            # Stats table
+            st.dataframe(type_revenue, use_container_width=True, hide_index=True)
+        else:
+            st.info("Không có dữ liệu loại xe")
+    
+    # Row 4: Performance analysis
+    col3, col4 = st.columns(2)
+    
+    with col3:
+        st.markdown("##### 💼 Top tài xế theo doanh thu")
+        if 'driver_name' in revenue_data.columns:
+            # Filter valid drivers
+            valid_drivers = revenue_data[
+                revenue_data['driver_name'].notna() & 
+                (revenue_data['driver_name'].str.strip() != '') & 
+                (revenue_data['driver_name'] != 'nan')
+            ]
+            
+            if not valid_drivers.empty:
+                driver_revenue = valid_drivers.groupby('driver_name').agg({
+                    'revenue_vnd': ['sum', 'count', 'mean']
+                }).round(0)
+                driver_revenue.columns = ['Tổng DT', 'Số chuyến', 'TB DT/chuyến']
+                driver_revenue = driver_revenue.reset_index().sort_values('Tổng DT', ascending=False)
+                
+                # Bar chart top 10
+                fig_driver = px.bar(
+                    driver_revenue.head(10),
+                    x='driver_name',
+                    y='Tổng DT',
+                    title="Top 10 tài xế theo doanh thu",
+                    labels={'Tổng DT': 'Tổng doanh thu (VNĐ)', 'driver_name': 'Tài xế'},
+                    color='Tổng DT',
+                    color_continuous_scale='Viridis'
+                )
+                fig_driver.update_layout(height=400)
+                fig_driver.update_xaxes(tickangle=45)
+                st.plotly_chart(fig_driver, use_container_width=True)
+            else:
+                st.info("Không có dữ liệu tài xế hợp lệ")
         else:
             st.info("Không có dữ liệu tài xế")
     
-    # Revenue metrics table
-    st.markdown("#### 📋 Bảng thống kê doanh thu")
+    with col4:
+        st.markdown("##### 🫧 Bubble Chart: Số chuyến vs Doanh thu")
+        if 'vehicle_id' in revenue_data.columns:
+            bubble_data = revenue_data.groupby('vehicle_id').agg({
+                'revenue_vnd': ['sum', 'mean'],
+                'vehicle_id': 'count'
+            }).reset_index()
+            bubble_data.columns = ['vehicle_id', 'total_revenue', 'avg_revenue', 'trip_count']
+            
+            # Add vehicle type if available
+            if 'vehicle_type' in revenue_data.columns:
+                vehicle_types = revenue_data.groupby('vehicle_id')['vehicle_type'].first().reset_index()
+                bubble_data = bubble_data.merge(vehicle_types, on='vehicle_id', how='left')
+                color_col = 'vehicle_type'
+            else:
+                color_col = None
+            
+            fig_bubble = px.scatter(
+                bubble_data,
+                x='trip_count',
+                y='total_revenue',
+                size='avg_revenue',
+                color=color_col,
+                hover_data=['vehicle_id'],
+                title="Số chuyến vs Tổng DT (size = TB DT/chuyến)",
+                labels={'trip_count': 'Số chuyến', 'total_revenue': 'Tổng doanh thu (VNĐ)'},
+                size_max=30
+            )
+            fig_bubble.update_layout(height=400)
+            st.plotly_chart(fig_bubble, use_container_width=True)
+        else:
+            st.info("Không có dữ liệu xe")
+    
+    # =================== HEATMAP ANALYSIS ===================
+    if 'start_time' in revenue_data.columns and 'parsed_date' in revenue_data.columns:
+        st.markdown("##### 🔥 Heatmap: Doanh thu theo ngày và giờ")
+        
+        # Only proceed if we have valid parsed dates
+        if revenue_data['parsed_date'].notna().any():
+            # Parse time data
+            revenue_data['start_time'] = pd.to_datetime(revenue_data['start_time'], errors='coerce')
+            revenue_data['hour'] = revenue_data['start_time'].dt.hour
+            revenue_data['day_of_week'] = revenue_data['parsed_date'].dt.day_name()
+            
+            # Create heatmap data - only use rows with valid hour and day_of_week
+            valid_heatmap_data = revenue_data[
+                revenue_data['hour'].notna() & 
+                revenue_data['day_of_week'].notna()
+            ]
+            
+            if not valid_heatmap_data.empty:
+                heatmap_data = valid_heatmap_data.groupby(['day_of_week', 'hour'])['revenue_vnd'].sum().reset_index()
+                
+                if not heatmap_data.empty:
+                    heatmap_pivot = heatmap_data.pivot(index='day_of_week', columns='hour', values='revenue_vnd').fillna(0)
+                    
+                    # Reorder days
+                    day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+                    heatmap_pivot = heatmap_pivot.reindex([day for day in day_order if day in heatmap_pivot.index])
+                    
+                    fig_heatmap = px.imshow(
+                        heatmap_pivot,
+                        title="Doanh thu theo ngày trong tuần và giờ",
+                        labels={'x': 'Giờ', 'y': 'Ngày trong tuần', 'color': 'Doanh thu (VNĐ)'},
+                        color_continuous_scale='Viridis',
+                        aspect='auto'
+                    )
+                    fig_heatmap.update_layout(height=400)
+                    st.plotly_chart(fig_heatmap, use_container_width=True)
+                else:
+                    st.info("Không có dữ liệu hợp lệ cho heatmap")
+            else:
+                st.info("Không có dữ liệu thời gian hợp lệ cho heatmap")
+        else:
+            st.info("Không thể tạo heatmap do lỗi parse ngày tháng")
+    
+    # =================== SUMMARY TABLE ===================
+    st.markdown("#### 📋 Bảng thống kê tổng hợp")
+    
     revenue_stats = pd.DataFrame({
-        'Chỉ số': ['Tổng doanh thu', 'Doanh thu TB/chuyến', 'Doanh thu cao nhất', 'Doanh thu thấp nhất', 'Số chuyến có doanh thu'],
+        'Chỉ số': [
+            'Tổng doanh thu', 
+            'Doanh thu TB/chuyến', 
+            'Doanh thu cao nhất/chuyến',
+            'Doanh thu thấp nhất/chuyến',
+            'Trung vị doanh thu/chuyến',
+            'Số chuyến có doanh thu',
+            'Số xe tham gia',
+            'Số tài xế (nếu có)'
+        ],
         'Giá trị': [
-            f"{revenue_data['revenue_vnd'].sum():,.0f} VNĐ",
-            f"{revenue_data['revenue_vnd'].mean():,.0f} VNĐ",
+            f"{total_revenue:,.0f} VNĐ",
+            f"{avg_revenue_per_trip:,.0f} VNĐ",
             f"{revenue_data['revenue_vnd'].max():,.0f} VNĐ",
             f"{revenue_data['revenue_vnd'].min():,.0f} VNĐ",
-            f"{len(revenue_data):,} chuyến"
+            f"{revenue_data['revenue_vnd'].median():,.0f} VNĐ",
+            f"{total_revenue_trips:,} chuyến",
+            f"{unique_vehicles} xe",
+            f"{revenue_data['driver_name'].nunique() if 'driver_name' in revenue_data.columns else 'N/A'}"
         ]
     })
-    st.dataframe(revenue_stats, use_container_width=True, hide_index=True)
+    
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        st.dataframe(revenue_stats, use_container_width=True, hide_index=True)
+    
+    with col2:
+        # Quick insights
+        if not daily_revenue.empty and len(daily_revenue) > 1:
+            recent_trend = daily_revenue.tail(7)['revenue_vnd'].mean()
+            overall_avg = daily_revenue['revenue_vnd'].mean()
+            trend_direction = "📈 Tăng" if recent_trend > overall_avg else "📉 Giảm"
+            
+            st.markdown("**🎯 Insights nhanh:**")
+            st.info(f"""
+            • Xu hướng 7 ngày gần nhất: {trend_direction}
+            • DT TB 7 ngày: {recent_trend:,.0f} VNĐ
+            • DT TB tổng thể: {overall_avg:,.0f} VNĐ
+            • Chênh lệch: {(recent_trend-overall_avg)/overall_avg*100:+.1f}%
+            """)
+        else:
+            st.markdown("**⚠️ Lưu ý:**")
+            st.warning("Không thể tính insights do dữ liệu ngày tháng không hợp lệ hoặc không đủ")
 
 def create_vehicle_efficiency_tab(df):
     """Tab 2: Hiệu suất xe"""
@@ -1225,7 +1571,7 @@ def create_vehicle_efficiency_tab(df):
         
         # Basic metrics
         total_trips = len(vehicle_data)
-        total_hours = vehicle_data['Thời gian'].sum() if 'Thời gian' in vehicle_data.columns else 0
+        total_hours = vehicle_data['duration_hours'].sum() if 'duration_hours' in vehicle_data.columns else 0
         total_distance = vehicle_data['distance_km'].sum() if 'distance_km' in vehicle_data.columns else 0
         total_revenue = vehicle_data['revenue_vnd'].sum() if 'revenue_vnd' in vehicle_data.columns else 0
         
@@ -1321,150 +1667,382 @@ def create_vehicle_efficiency_tab(df):
     top_performers.columns = ['Mã xe', 'Chuyến/ngày', 'Giờ/chuyến', 'Km/chuyến', 'Doanh thu/giờ']
     st.dataframe(top_performers.round(2), use_container_width=True, hide_index=True)
 
+
+
 def create_overload_analysis_tab(df):
-    """Tab 3: Phân tích quá tải"""
-    st.markdown("### ⚡ Phân tích quá tải và tối ưu hóa")
+    """Tab 3: Phân tích quá tải và tối ưu hóa"""
+    st.markdown("### ⚡ Phân tích quá tải hệ thống xe")
     
     if df.empty:
         st.warning("⚠️ Không có dữ liệu để phân tích")
         return
     
-    # Define overload thresholds
+    # Kiểm tra dữ liệu cần thiết
+    if 'vehicle_type' not in df.columns or 'vehicle_id' not in df.columns:
+        st.error("❌ Thiếu dữ liệu phân loại xe hoặc mã xe")
+        return
+    
+    # =================== THIẾT LẬP NGƯỠNG ===================
     st.markdown("#### 🎯 Thiết lập ngưỡng cảnh báo")
+    
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        max_hours_per_day = st.number_input("Max giờ/ngày", value=10.0, min_value=1.0, max_value=24.0)
+        max_hours_per_day = st.number_input("Max giờ/ngày mỗi xe", value=10.0, min_value=1.0, max_value=24.0)
     with col2:
-        max_trips_per_day = st.number_input("Max chuyến/ngày", value=8, min_value=1, max_value=20)
+        max_trips_per_day = st.number_input("Max chuyến/ngày mỗi xe", value=8, min_value=1, max_value=20)
     with col3:
-        max_distance_per_trip = st.number_input("Max km/chuyến", value=100.0, min_value=1.0, max_value=500.0)
+        utilization_threshold = st.slider("Ngưỡng quá tải hệ thống (%)", value=80, min_value=50, max_value=100)
     
-    # Calculate daily workload per vehicle and driver
-    if 'date' in df.columns:
-        # Vehicle daily workload
-        vehicle_daily = df.groupby(['vehicle_id', 'date']).agg({
-            'Thời gian': 'sum',
-            'distance_km': 'sum',
-            'revenue_vnd': 'count'  # count trips - use different column to avoid conflict
-        }).reset_index()
-        vehicle_daily.columns = ['vehicle_id', 'date', 'daily_hours', 'daily_distance', 'daily_trips']
-        
-        # Driver daily workload
-        if 'driver_name' in df.columns:
-            driver_daily = df.groupby(['driver_name', 'date']).agg({
-                'Thời gian': 'sum',
-                'distance_km': 'sum',
-                'revenue_vnd': 'count'  # count trips - use different column to avoid conflict
-            }).reset_index()
-            driver_daily.columns = ['driver_name', 'date', 'daily_hours', 'daily_distance', 'daily_trips']
-        
-        # Identify overloaded days
-        vehicle_overload = vehicle_daily[
-            (vehicle_daily['daily_hours'] > max_hours_per_day) |
-            (vehicle_daily['daily_trips'] > max_trips_per_day)
-        ]
-        
-        # Charts
+    # Xử lý dữ liệu ngày
+    if 'date' not in df.columns:
+        if 'record_date' in df.columns:
+            df['record_date'] = pd.to_datetime(df['record_date'], errors='coerce')
+            df['date'] = df['record_date'].dt.date
+        else:
+            st.error("❌ Không có dữ liệu ngày để phân tích")
+            return
+    
+    # Phân loại xe
+    xe_hanh_chinh = df[df['vehicle_type'] == 'Hành chính']['vehicle_id'].unique()
+    xe_cuu_thuong = df[df['vehicle_type'] == 'Cứu thương']['vehicle_id'].unique()
+    
+    total_xe_hanh_chinh = len(xe_hanh_chinh)
+    total_xe_cuu_thuong = len(xe_cuu_thuong)
+    total_xe = total_xe_hanh_chinh + total_xe_cuu_thuong
+    
+    st.info(f"🚗 **Tổng đội xe:** {total_xe} xe ({total_xe_hanh_chinh} hành chính + {total_xe_cuu_thuong} cứu thương)")
+    
+    # =================== XE VƯỢT NGƯỠNG GIỜ LÀM VIỆC - FIXED ===================
+    
+    st.markdown("#### 🚨 Xe vượt ngưỡng giờ làm việc")
+    
+    # Tính toán workload hàng ngày cho từng xe
+    vehicle_daily = df.groupby(['vehicle_id', 'date']).agg({
+        'duration_hours': 'sum',
+        'distance_km': 'sum', 
+        'vehicle_type': 'first'
+    }).reset_index()
+    vehicle_daily.columns = ['vehicle_id', 'date', 'daily_hours', 'daily_distance', 'vehicle_type']
+    vehicle_daily['daily_trips'] = df.groupby(['vehicle_id', 'date']).size().values
+    
+    # Xe vượt ngưỡng
+    vehicle_overload = vehicle_daily[
+        (vehicle_daily['daily_hours'] > max_hours_per_day) |
+        (vehicle_daily['daily_trips'] > max_trips_per_day)
+    ]
+    
+    # BIỂU ĐỒ SCATTER THEO BIỂN SỐ XE - FIXED
+    # Tạo color map cho từng xe
+    unique_vehicles = vehicle_daily['vehicle_id'].unique()
+    colors = px.colors.qualitative.Plotly + px.colors.qualitative.Set3 + px.colors.qualitative.Pastel
+    vehicle_color_map = {vehicle: colors[i % len(colors)] for i, vehicle in enumerate(unique_vehicles)}
+    
+    fig_overload = px.scatter(
+        vehicle_daily,
+        x='daily_trips',
+        y='daily_hours', 
+        color='vehicle_id',  # Thay đổi từ 'vehicle_type' thành 'vehicle_id'
+        color_discrete_map=vehicle_color_map,
+        title=f"Tải công việc hàng ngày - {total_xe} xe (theo biển số)",
+        labels={'daily_trips': 'Chuyến/ngày', 'daily_hours': 'Giờ làm việc/ngày'},
+        hover_data=['vehicle_type', 'date']  # Thêm vehicle_type vào hover
+    )
+    
+    # Ngưỡng cảnh báo
+    fig_overload.add_hline(y=max_hours_per_day, line_dash="dash", line_color="red", 
+                         annotation_text=f"Max {max_hours_per_day}h/ngày")
+    fig_overload.add_vline(x=max_trips_per_day, line_dash="dash", line_color="red",
+                         annotation_text=f"Max {max_trips_per_day} chuyến/ngày")
+    fig_overload.update_layout(height=500)
+    st.plotly_chart(fig_overload, use_container_width=True)
+    
+    # Thống kê xe quá tải
+    if not vehicle_overload.empty:
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("#### 🚨 Xe vượt ngưỡng giờ làm việc")
-            if not vehicle_overload.empty:
-                fig_overload = px.scatter(
-                    vehicle_daily,
-                    x='daily_trips',
-                    y='daily_hours',
-                    color='vehicle_id',
-                    title="Phân tích tải công việc hàng ngày",
-                    labels={'daily_trips': 'Số chuyến/ngày', 'daily_hours': 'Giờ làm việc/ngày'}
-                )
-                # Add threshold lines
-                fig_overload.add_hline(y=max_hours_per_day, line_dash="dash", line_color="red", 
-                                     annotation_text=f"Max {max_hours_per_day}h/ngày")
-                fig_overload.add_vline(x=max_trips_per_day, line_dash="dash", line_color="red",
-                                     annotation_text=f"Max {max_trips_per_day} chuyến/ngày")
-                fig_overload.update_layout(height=400)
-                st.plotly_chart(fig_overload, use_container_width=True)
-            else:
-                st.success("✅ Không có xe nào vượt ngưỡng!")
+            st.error(f"🚨 **{len(vehicle_overload)}** lần xe vượt ngưỡng")
+            overload_freq = vehicle_overload['vehicle_id'].value_counts().head(5)
+            for vehicle, count in overload_freq.items():
+                vehicle_type = df[df['vehicle_id'] == vehicle]['vehicle_type'].iloc[0]
+                icon = "🏢" if vehicle_type == "Hành chính" else "🚑"
+                st.warning(f"{icon} **{vehicle}**: {count} lần")
         
         with col2:
-            st.markdown("#### 📊 Phân bố tải công việc")
-            # Heatmap of workload by day and vehicle
-            if len(vehicle_daily) > 0:
-                pivot_hours = vehicle_daily.pivot_table(
-                    values='daily_hours', 
-                    index='vehicle_id', 
-                    columns='date', 
-                    aggfunc='mean'
-                ).fillna(0)
-                
-                if not pivot_hours.empty:
-                    fig_heatmap = px.imshow(
-                        pivot_hours.values,
-                        labels=dict(x="Ngày", y="Xe", color="Giờ/ngày"),
-                        y=pivot_hours.index,
-                        title="Bản đồ nhiệt tải công việc"
-                    )
-                    fig_heatmap.update_layout(height=400)
-                    st.plotly_chart(fig_heatmap, use_container_width=True)
-        
-        # Distance analysis
-        col3, col4 = st.columns(2)
-        
-        with col3:
-            st.markdown("#### 🛣️ Phân tích quãng đường nguy hiểm")
-            if 'distance_km' in df.columns:
-                long_trips = df[df['distance_km'] > max_distance_per_trip]
-                
-                if not long_trips.empty:
-                    fig_distance = px.histogram(
-                        df,
-                        x='distance_km',
-                        nbins=30,
-                        title="Phân bố quãng đường chuyến xe",
-                        labels={'distance_km': 'Quãng đường (km)', 'count': 'Số chuyến'}
-                    )
-                    fig_distance.add_vline(x=max_distance_per_trip, line_dash="dash", line_color="red",
-                                         annotation_text=f"Ngưỡng {max_distance_per_trip}km")
-                    fig_distance.update_layout(height=400)
-                    st.plotly_chart(fig_distance, use_container_width=True)
-                else:
-                    st.success("✅ Không có chuyến xe nào vượt ngưỡng km!")
-        
-        with col4:
-            st.markdown("#### ⚠️ Cảnh báo quá tải")
-            
-            # Overload summary
-            overload_summary = []
-            
-            # Vehicle overload count
-            vehicle_overload_count = len(vehicle_overload)
-            if vehicle_overload_count > 0:
-                overload_summary.append(f"🚨 {vehicle_overload_count} lần xe vượt ngưỡng")
-            
-            # Long distance trips
-            if 'distance_km' in df.columns:
-                long_trips_count = len(df[df['distance_km'] > max_distance_per_trip])
-                if long_trips_count > 0:
-                    overload_summary.append(f"🛣️ {long_trips_count} chuyến vượt ngưỡng km")
-            
-            if overload_summary:
-                for warning in overload_summary:
-                    st.warning(warning)
-            else:
-                st.success("✅ Hệ thống hoạt động trong ngưỡng an toàn!")
-            
-            # Top overloaded vehicles
-            if not vehicle_overload.empty:
-                st.markdown("**Xe hay bị quá tải:**")
-                overload_freq = vehicle_overload['vehicle_id'].value_counts().head(5)
-                for vehicle, count in overload_freq.items():
-                    st.error(f"🚗 {vehicle}: {count} lần")
-    
+            st.markdown("**📅 Ngày quá tải gần nhất:**")
+            recent = vehicle_overload.sort_values('date', ascending=False).head(5)
+            for _, row in recent.iterrows():
+                icon = "🏢" if row['vehicle_type'] == "Hành chính" else "🚑"
+                st.info(f"{icon} {row['vehicle_id']} ({row['date']}): {row['daily_hours']:.1f}h")
     else:
-        st.info("ℹ️ Cần dữ liệu ngày để phân tích quá tải chi tiết")
+        st.success("✅ Không có xe nào vượt ngưỡng!")
+    
+    # =================== PHÂN TÍCH THEO KHUNG GIỜ ===================
+    
+    st.markdown("#### ⏰ Phân tích theo khung giờ")
+    
+    if 'start_time' in df.columns and 'end_time' in df.columns:
+        # Parse thời gian
+        df_time = df.copy()
+        df_time['start_time'] = pd.to_datetime(df_time['start_time'], errors='coerce')
+        df_time['end_time'] = pd.to_datetime(df_time['end_time'], errors='coerce')
+        df_time['start_hour'] = df_time['start_time'].dt.hour
+        df_time['end_hour'] = df_time['end_time'].dt.hour
+        
+        # Color map cho loại xe ở phần này vẫn giữ nguyên
+        color_map = {'Hành chính': 'blue', 'Cứu thương': 'red'}
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Giờ bắt đầu
+            start_data = df_time[df_time['start_hour'].notna()]
+            if not start_data.empty:
+                start_counts = start_data.groupby(['start_hour', 'vehicle_type']).size().reset_index(name='count')
+                
+                fig_start = px.bar(
+                    start_counts,
+                    x='start_hour',
+                    y='count',
+                    color='vehicle_type',
+                    color_discrete_map=color_map,
+                    title="Giờ bắt đầu chuyến",
+                    labels={'start_hour': 'Giờ', 'count': 'Số chuyến'},
+                    barmode='group'
+                )
+                fig_start.update_layout(height=400)
+                st.plotly_chart(fig_start, use_container_width=True)
+                
+                # Top giờ cao điểm
+                peak_hours = start_data['start_hour'].value_counts().head(3)
+                st.markdown("**🔥 Giờ cao điểm:**")
+                for hour, count in peak_hours.items():
+                    st.info(f"⏰ {int(hour):02d}:00 - {count} chuyến")
+        
+        with col2:
+            # Giờ kết thúc
+            end_data = df_time[df_time['end_hour'].notna()]
+            if not end_data.empty:
+                end_counts = end_data.groupby(['end_hour', 'vehicle_type']).size().reset_index(name='count')
+                
+                fig_end = px.bar(
+                    end_counts,
+                    x='end_hour',
+                    y='count',
+                    color='vehicle_type',
+                    color_discrete_map=color_map,
+                    title="Giờ kết thúc chuyến",
+                    labels={'end_hour': 'Giờ', 'count': 'Số chuyến'},
+                    barmode='group'
+                )
+                fig_end.update_layout(height=400)
+                st.plotly_chart(fig_end, use_container_width=True)
+        
+        # Phân tích ca làm việc
+        if not start_data.empty:
+            def get_shift(hour):
+                if pd.isna(hour): return 'Không xác định'
+                if 6 <= hour < 14: return 'Ca sáng (6h-14h)'
+                elif 14 <= hour < 22: return 'Ca chiều (14h-22h)'
+                else: return 'Ca đêm (22h-6h)'
+            
+            start_data['shift'] = start_data['start_hour'].apply(get_shift)
+            shift_stats = start_data.groupby(['shift', 'vehicle_type']).size().reset_index(name='count')
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Pie chart tổng hợp
+                shift_total = start_data['shift'].value_counts()
+                fig_pie = px.pie(
+                    values=shift_total.values,
+                    names=shift_total.index,
+                    title="Phân bố theo ca làm việc"
+                )
+                st.plotly_chart(fig_pie, use_container_width=True)
+            
+            with col2:
+                # Bar chart theo loại xe
+                fig_shift = px.bar(
+                    shift_stats,
+                    x='shift',
+                    y='count',
+                    color='vehicle_type',
+                    color_discrete_map=color_map,
+                    title="Ca làm việc theo loại xe"
+                )
+                fig_shift.update_xaxes(tickangle=45)
+                st.plotly_chart(fig_shift, use_container_width=True)
+    else:
+        st.warning("⚠️ Không có dữ liệu start_time/end_time để phân tích khung giờ")
+    
+    # =================== PHÂN TÍCH TỶ LỆ SỬ DỤNG THEO LOẠI XE ===================
+    
+    st.markdown("#### 📈 Tỷ lệ sử dụng xe theo ngày")
+    
+    # Tính toán cho từng ngày
+    daily_analysis = []
+    unique_dates = sorted(df['date'].dropna().unique())
+    
+    for date in unique_dates:
+        daily_data = df[df['date'] == date]
+        
+        xe_hc = daily_data[daily_data['vehicle_type'] == 'Hành chính']['vehicle_id'].nunique()
+        xe_ct = daily_data[daily_data['vehicle_type'] == 'Cứu thương']['vehicle_id'].nunique()
+        
+        ty_le_hc = (xe_hc / total_xe_hanh_chinh * 100) if total_xe_hanh_chinh > 0 else 0
+        ty_le_ct = (xe_ct / total_xe_cuu_thuong * 100) if total_xe_cuu_thuong > 0 else 0
+        
+        daily_analysis.append({
+            'date': date,
+            'xe_hc': xe_hc,
+            'xe_ct': xe_ct,
+            'ty_le_hc': ty_le_hc,
+            'ty_le_ct': ty_le_ct,
+            'qua_tai_hc': ty_le_hc >= utilization_threshold,
+            'qua_tai_ct': ty_le_ct >= utilization_threshold,
+            'chuyen_hc': len(daily_data[daily_data['vehicle_type'] == 'Hành chính']),
+            'chuyen_ct': len(daily_data[daily_data['vehicle_type'] == 'Cứu thương'])
+        })
+    
+    daily_df = pd.DataFrame(daily_analysis)
+    
+    if not daily_df.empty:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Xe hành chính
+            st.markdown("##### 🏢 XE HÀNH CHÍNH")
+            
+            fig_hc = go.Figure()
+            fig_hc.add_trace(go.Scatter(
+                x=daily_df['date'],
+                y=daily_df['ty_le_hc'],
+                mode='lines+markers',
+                name='Tỷ lệ sử dụng',
+                line=dict(color='blue', width=3),
+                fill='tonexty'
+            ))
+            
+            fig_hc.add_hline(y=utilization_threshold, line_dash="dash", line_color="orange",
+                           annotation_text=f"Ngưỡng {utilization_threshold}%")
+            
+            fig_hc.update_layout(
+                title=f"Tỷ lệ sử dụng xe hành chính ({total_xe_hanh_chinh} xe)",
+                yaxis_title="Tỷ lệ (%)",
+                height=400,
+                yaxis=dict(range=[0, 100])
+            )
+            st.plotly_chart(fig_hc, use_container_width=True)
+            
+            # Thống kê
+            ngay_qua_tai_hc = daily_df[daily_df['qua_tai_hc'] == True]
+            avg_hc = daily_df['ty_le_hc'].mean()
+            
+            if not ngay_qua_tai_hc.empty:
+                st.error(f"🚨 {len(ngay_qua_tai_hc)} ngày quá tải")
+            else:
+                st.success("✅ Không quá tải")
+            
+            st.info(f"📊 TB sử dụng: {avg_hc:.1f}%")
+        
+        with col2:
+            # Xe cứu thương
+            st.markdown("##### 🚑 XE CỨU THƯƠNG")
+            
+            fig_ct = go.Figure()
+            fig_ct.add_trace(go.Scatter(
+                x=daily_df['date'],
+                y=daily_df['ty_le_ct'],
+                mode='lines+markers',
+                name='Tỷ lệ sử dụng',
+                line=dict(color='red', width=3),
+                fill='tonexty'
+            ))
+            
+            fig_ct.add_hline(y=utilization_threshold, line_dash="dash", line_color="orange",
+                           annotation_text=f"Ngưỡng {utilization_threshold}%")
+            
+            fig_ct.update_layout(
+                title=f"Tỷ lệ sử dụng xe cứu thương ({total_xe_cuu_thuong} xe)",
+                yaxis_title="Tỷ lệ (%)",
+                height=400,
+                yaxis=dict(range=[0, 100])
+            )
+            st.plotly_chart(fig_ct, use_container_width=True)
+            
+            # Thống kê
+            ngay_qua_tai_ct = daily_df[daily_df['qua_tai_ct'] == True]
+            avg_ct = daily_df['ty_le_ct'].mean()
+            
+            if not ngay_qua_tai_ct.empty:
+                st.error(f"🚨 {len(ngay_qua_tai_ct)} ngày quá tải")
+            else:
+                st.success("✅ Không quá tải")
+            
+            st.info(f"📊 TB sử dụng: {avg_ct:.1f}%")
+        
+        # =================== SO SÁNH VÀ KHUYẾN NGHỊ ===================
+        
+        st.markdown("#### 💡 Tổng quan và Khuyến nghị")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("##### 📊 So sánh")
+            
+            if avg_hc > avg_ct:
+                diff = avg_hc - avg_ct
+                st.warning(f"🏢 Xe hành chính sử dụng cao hơn {diff:.1f}%")
+            elif avg_ct > avg_hc:
+                diff = avg_ct - avg_hc
+                st.warning(f"🚑 Xe cứu thương sử dụng cao hơn {diff:.1f}%")
+            else:
+                st.success("⚖️ Cân bằng giữa 2 loại xe")
+            
+            st.write(f"• Hành chính: {avg_hc:.1f}%")
+            st.write(f"• Cứu thương: {avg_ct:.1f}%")
+        
+        with col2:
+            st.markdown("##### 🎯 Khuyến nghị")
+            
+            max_avg = max(avg_hc, avg_ct)
+            
+            if max_avg > utilization_threshold:
+                st.error("🚨 **Quá tải nghiêm trọng!**")
+                st.write("• 🚗 Tăng cường xe dự phòng")
+                st.write("• ⏰ Điều chỉnh ca làm việc")
+                st.write("• 🔄 Cân nhắc thuê xe ngoài")
+            elif max_avg > utilization_threshold - 10:
+                st.warning("⚠️ **Gần ngưỡng quá tải!**")
+                st.write("• 📊 Theo dõi sát sao")
+                st.write("• 🔄 Chuẩn bị phương án dự phòng")
+            else:
+                st.success("✅ **Hoạt động ổn định**")
+                st.write("• 📈 Có thể tối ưu hóa thêm")
+                st.write("• 🔧 Bảo trì định kỳ")
+    
+    # =================== BẢNG CHI TIẾT ===================
+    
+    with st.expander("📋 Dữ liệu chi tiết theo ngày"):
+        if not daily_df.empty:
+            display_df = daily_df.copy()
+            display_df['Ngày'] = display_df['date']
+            display_df['HC: Xe'] = display_df['xe_hc']
+            display_df['HC: Tỷ lệ (%)'] = display_df['ty_le_hc'].round(1)
+            display_df['HC: Chuyến'] = display_df['chuyen_hc']
+            display_df['CT: Xe'] = display_df['xe_ct']
+            display_df['CT: Tỷ lệ (%)'] = display_df['ty_le_ct'].round(1)
+            display_df['CT: Chuyến'] = display_df['chuyen_ct']
+            
+            cols_show = ['Ngày', 'HC: Xe', 'HC: Tỷ lệ (%)', 'HC: Chuyến', 
+                        'CT: Xe', 'CT: Tỷ lệ (%)', 'CT: Chuyến']
+            
+            st.dataframe(display_df[cols_show].sort_values('Ngày', ascending=False), 
+                        use_container_width=True, height=400)
+        else:
+            st.info("Không có dữ liệu để hiển thị")
 
 def create_distance_analysis_tab(df):
     """Tab 4: Phân tích quãng đường"""
@@ -1521,10 +2099,58 @@ def create_distance_analysis_tab(df):
         else:
             st.info("Không có dữ liệu thời gian")
     
-    # Distance distribution and efficiency
+    # NEW: Boxplot and Scatter plot
     col3, col4 = st.columns(2)
     
     with col3:
+        st.markdown("#### 📦 Phân bố quãng đường theo xe (Boxplot)")
+        # Use all vehicles, sorted by vehicle_id for better organization
+        sorted_vehicles = sorted(distance_data['vehicle_id'].unique())
+        boxplot_data = distance_data.copy()
+        
+        fig_boxplot = px.box(
+            boxplot_data,
+            x='vehicle_id',
+            y='distance_km',
+            title=f"Phân bố quãng đường - Tất cả {len(sorted_vehicles)} xe",
+            labels={'distance_km': 'Quãng đường (km)', 'vehicle_id': 'Mã xe'},
+            category_orders={'vehicle_id': sorted_vehicles}
+        )
+        fig_boxplot.update_xaxes(tickangle=90, tickfont=dict(size=10))
+        fig_boxplot.update_layout(
+            height=500,  # Tăng chiều cao để dễ đọc hơn
+            margin=dict(b=120)  # Tăng margin bottom cho labels
+        )
+        st.plotly_chart(fig_boxplot, use_container_width=True)
+    
+    with col4:
+        st.markdown("#### 🎯 Quan hệ Quãng đường - Thời gian")
+        if 'duration_hours' in distance_data.columns:
+            # Filter out extreme values for better visualization
+            scatter_data = distance_data[
+                (distance_data['duration_hours'] > 0) & 
+                (distance_data['duration_hours'] < 12) &  # reasonable trip duration
+                (distance_data['distance_km'] < 200)  # reasonable distance
+            ]
+            
+            fig_scatter = px.scatter(
+                scatter_data,
+                x='duration_hours',
+                y='distance_km',
+                color='vehicle_type' if 'vehicle_type' in scatter_data.columns else None,
+                title="Quãng đường vs Thời gian",
+                labels={'duration_hours': 'Thời gian (giờ)', 'distance_km': 'Quãng đường (km)'},
+                opacity=0.6
+            )
+            fig_scatter.update_layout(height=400)
+            st.plotly_chart(fig_scatter, use_container_width=True)
+        else:
+            st.info("Không có dữ liệu thời gian")
+    
+    # Distance distribution and efficiency
+    col5, col6 = st.columns(2)
+    
+    with col5:
         st.markdown("#### 📊 Phân bố quãng đường mỗi chuyến")
         fig_dist_hist = px.histogram(
             distance_data,
@@ -1545,13 +2171,13 @@ def create_distance_analysis_tab(df):
         fig_dist_hist.update_layout(height=400)
         st.plotly_chart(fig_dist_hist, use_container_width=True)
     
-    with col4:
+    with col6:
         st.markdown("#### 🎯 Hiệu suất quãng đường theo xe")
         # Distance efficiency: km per hour
-        if 'Thời gian' in distance_data.columns:
+        if 'duration_hours' in distance_data.columns:
             # Create a copy to avoid modifying original data
             efficiency_data = distance_data.copy()
-            efficiency_data['km_per_hour'] = efficiency_data['distance_km'] / efficiency_data['Thời gian']
+            efficiency_data['km_per_hour'] = efficiency_data['distance_km'] / efficiency_data['duration_hours']
             efficiency_data['km_per_hour'] = efficiency_data['km_per_hour'].replace([np.inf, -np.inf], np.nan)
             
             vehicle_efficiency = efficiency_data.groupby('vehicle_id')['km_per_hour'].mean().reset_index()
@@ -1571,11 +2197,149 @@ def create_distance_analysis_tab(df):
         else:
             st.info("Không có dữ liệu thời gian để tính hiệu suất")
     
+    # NEW: Additional analysis options
+    st.markdown("#### 🔍 Phân tích bổ sung")
+    
+    analysis_options = st.multiselect(
+        "Chọn các phân tích bổ sung:",
+        [
+            "Violin Plot - Phân bố chi tiết theo xe",
+            "Heatmap - Quãng đường theo ngày/giờ", 
+            "Bubble Chart - 3D Analysis",
+            "So sánh theo loại xe",
+            "Xu hướng trung bình theo thời gian"
+        ]
+    )
+    
+    if "Violin Plot - Phân bố chi tiết theo xe" in analysis_options:
+        st.markdown("##### 🎻 Violin Plot - Phân bố chi tiết")
+        col_v1, col_v2 = st.columns([2, 1])
+        
+        with col_v1:
+            # Horizontal violin plot for better readability
+            fig_violin = px.violin(
+                distance_data,
+                y='vehicle_id',  # Swap x and y for horizontal
+                x='distance_km',
+                color='vehicle_type' if 'vehicle_type' in distance_data.columns else None,
+                title=f"Phân bố chi tiết quãng đường - Tất cả {len(distance_data['vehicle_id'].unique())} xe",
+                labels={'distance_km': 'Quãng đường (km)', 'vehicle_id': 'Mã xe'},
+                category_orders={'vehicle_id': sorted(distance_data['vehicle_id'].unique(), reverse=True)},  # Reverse for top-to-bottom
+                orientation='h'  # Horizontal orientation
+            )
+            fig_violin.update_layout(
+                height=max(400, len(distance_data['vehicle_id'].unique()) * 25),  # Dynamic height based on number of vehicles
+                margin=dict(l=120, r=20, t=50, b=50)
+            )
+            st.plotly_chart(fig_violin, use_container_width=True)
+        
+        with col_v2:
+            st.markdown("**Giải thích Violin Plot:**")
+            st.info("🎻 Violin Plot cho thấy:\n"
+                   "• Độ rộng = mật độ phân bố\n"
+                   "• Đường giữa = median\n"
+                   "• Hình dạng = tần suất các giá trị")
+    
+    if "Heatmap - Quãng đường theo ngày/giờ" in analysis_options and 'start_time' in distance_data.columns:
+        st.markdown("##### 🔥 Heatmap - Patterns theo thời gian")
+        
+        # Parse time data
+        time_data = distance_data.copy()
+        time_data['start_time'] = pd.to_datetime(time_data['start_time'], errors='coerce')
+        time_data['hour'] = time_data['start_time'].dt.hour
+        time_data['day_of_week'] = time_data['start_time'].dt.day_name()
+        
+        if not time_data['hour'].isna().all():
+            # Create heatmap data
+            heatmap_data = time_data.groupby(['day_of_week', 'hour'])['distance_km'].mean().reset_index()
+            heatmap_pivot = heatmap_data.pivot(index='day_of_week', columns='hour', values='distance_km')
+            
+            fig_heatmap = px.imshow(
+                heatmap_pivot,
+                title="Quãng đường trung bình theo ngày/giờ",
+                labels={'x': 'Giờ', 'y': 'Ngày trong tuần', 'color': 'Km TB'},
+                color_continuous_scale='Viridis'
+            )
+            st.plotly_chart(fig_heatmap, use_container_width=True)
+    
+    if "Bubble Chart - 3D Analysis" in analysis_options:
+        st.markdown("##### 🫧 Bubble Chart - Phân tích 3 chiều")
+        
+        bubble_data = distance_data.groupby('vehicle_id').agg({
+            'distance_km': ['sum', 'mean'],
+            'duration_hours': 'sum' if 'duration_hours' in distance_data.columns else 'count'
+        }).reset_index()
+        bubble_data.columns = ['vehicle_id', 'total_km', 'avg_km', 'total_hours']
+        bubble_data['trip_count'] = distance_data['vehicle_id'].value_counts().values
+        
+        fig_bubble = px.scatter(
+            bubble_data.head(20),
+            x='total_km',
+            y='avg_km',
+            size='trip_count',
+            hover_data=['vehicle_id'],
+            title="Tổng KM vs TB KM vs Số chuyến (bubble size)",
+            labels={'total_km': 'Tổng km', 'avg_km': 'TB km/chuyến'}
+        )
+        st.plotly_chart(fig_bubble, use_container_width=True)
+    
+    if "So sánh theo loại xe" in analysis_options and 'vehicle_type' in distance_data.columns:
+        st.markdown("##### 🚗 So sánh theo loại xe")
+        
+        col_comp1, col_comp2 = st.columns(2)
+        
+        with col_comp1:
+            type_stats = distance_data.groupby('vehicle_type')['distance_km'].agg(['sum', 'mean', 'count']).reset_index()
+            type_stats.columns = ['Loại xe', 'Tổng km', 'TB km', 'Số chuyến']
+            
+            fig_type = px.bar(
+                type_stats,
+                x='Loại xe',
+                y='Tổng km',
+                title="Tổng quãng đường theo loại xe",
+                color='Loại xe'
+            )
+            st.plotly_chart(fig_type, use_container_width=True)
+        
+        with col_comp2:
+            st.dataframe(type_stats, use_container_width=True, hide_index=True)
+    
+    if "Xu hướng trung bình theo thời gian" in analysis_options and 'date' in distance_data.columns:
+        st.markdown("##### 📈 Xu hướng quãng đường trung bình")
+        
+        daily_avg = distance_data.groupby('date')['distance_km'].mean().reset_index()
+        daily_avg = daily_avg.sort_values('date')
+        
+        # Add moving average
+        daily_avg['MA_7'] = daily_avg['distance_km'].rolling(window=7, min_periods=1).mean()
+        
+        fig_trend = go.Figure()
+        fig_trend.add_trace(go.Scatter(
+            x=daily_avg['date'],
+            y=daily_avg['distance_km'],
+            mode='lines+markers',
+            name='Quãng đường TB',
+            line=dict(color='lightblue', width=1)
+        ))
+        fig_trend.add_trace(go.Scatter(
+            x=daily_avg['date'],
+            y=daily_avg['MA_7'],
+            mode='lines',
+            name='Đường xu hướng (7 ngày)',
+            line=dict(color='red', width=2)
+        ))
+        fig_trend.update_layout(
+            title="Xu hướng quãng đường trung bình theo thời gian",
+            xaxis_title="Ngày",
+            yaxis_title="Quãng đường TB (km)"
+        )
+        st.plotly_chart(fig_trend, use_container_width=True)
+    
     # Area analysis
     if 'area_type' in distance_data.columns:
-        col5, col6 = st.columns(2)
+        col7, col8 = st.columns(2)
         
-        with col5:
+        with col7:
             st.markdown("#### 🏙️ Phân tích theo khu vực")
             area_stats = distance_data.groupby('area_type').agg({
                 'distance_km': ['sum', 'mean', 'count']
@@ -1592,7 +2356,7 @@ def create_distance_analysis_tab(df):
             fig_area.update_layout(height=400)
             st.plotly_chart(fig_area, use_container_width=True)
         
-        with col6:
+        with col8:
             st.markdown("#### 📋 Thống kê theo khu vực")
             st.dataframe(area_stats, use_container_width=True, hide_index=True)
     
@@ -1615,9 +2379,9 @@ def create_distance_analysis_tab(df):
         ]
     })
     st.dataframe(distance_stats, use_container_width=True, hide_index=True)
-    
+
 def create_fuel_analysis_tab(df):
-    """Tab 5: Phân tích nhiên liệu chi tiết - COMPLETELY REWRITTEN VERSION"""
+    """Tab 5: Phân tích nhiên liệu chi tiết - Enhanced Version"""
     st.markdown("### ⛽ Phân tích nhiên liệu và định mức tiêu thụ")
     
     if df.empty:
@@ -1649,7 +2413,7 @@ def create_fuel_analysis_tab(df):
         st.error("❌ Thiếu cột fuel_liters hoặc distance_km")
         return
     
-    # BƯỚC 1: Clean dữ liệu cơ bản - KHÔNG loại bỏ xe nào
+    # BƯỚC 1: Clean dữ liệu cơ bản
     df_clean = df.copy()
     
     # Đảm bảo có cột fuel_liters và distance_km
@@ -1666,26 +2430,9 @@ def create_fuel_analysis_tab(df):
     df_clean['distance_km'] = pd.to_numeric(df_clean['distance_km'], errors='coerce').fillna(0)
     df_clean['distance_km'] = df_clean['distance_km'].apply(lambda x: max(0, min(x, 5000)) if pd.notna(x) else 0)
     
-    # BƯỚC 2: Tính toán cho từng xe - KHÔNG loại bỏ xe nào
-    st.markdown("#### 📊 Debug - Thông tin dữ liệu")
-    total_records = len(df_clean)
-    total_vehicles = df_clean['vehicle_id'].nunique()
-    records_with_fuel = len(df_clean[df_clean['fuel_liters'] > 0])
-    records_with_distance = len(df_clean[df_clean['distance_km'] > 0])
-    
-    st.info(f"""
-    **📊 Tổng quan dữ liệu:**
-    - Tổng số records: {total_records:,}
-    - Tổng số xe: {total_vehicles}
-    - Records có fuel > 0: {records_with_fuel:,} ({records_with_fuel/total_records*100:.1f}%)
-    - Records có distance > 0: {records_with_distance:,} ({records_with_distance/total_records*100:.1f}%)
-    """)
-    
-    # BƯỚC 3: Tính toán cho từng xe
+    # BƯỚC 2: Tính toán cho từng xe
     vehicle_analysis = []
     all_vehicles = sorted(df_clean['vehicle_id'].unique())
-    
-    st.markdown(f"#### 🔍 Phân tích {len(all_vehicles)} xe")
     
     for vehicle_id in all_vehicles:
         vehicle_data = df_clean[df_clean['vehicle_id'] == vehicle_id].copy()
@@ -1702,7 +2449,6 @@ def create_fuel_analysis_tab(df):
         
         # Tính mức tiêu thụ
         if total_distance > 0 and total_fuel > 0:
-            # Công thức đơn giản: tổng fuel / tổng distance * 100
             avg_consumption = (total_fuel / total_distance) * 100
         else:
             avg_consumption = 0.0
@@ -1735,7 +2481,6 @@ def create_fuel_analysis_tab(df):
                 status = "⚫ Không có dữ liệu"
             status_color = "gray"
         
-        # Thêm vào danh sách
         vehicle_analysis.append({
             'vehicle_id': vehicle_id,
             'total_trips': total_trips,
@@ -1755,7 +2500,7 @@ def create_fuel_analysis_tab(df):
     # Chuyển thành DataFrame
     vehicle_fuel_df = pd.DataFrame(vehicle_analysis)
     
-    # BƯỚC 4: Hiển thị overview
+    # BƯỚC 3: Hiển thị overview
     st.markdown("#### 📊 Tổng quan tiêu thụ nhiên liệu")
     
     # Chỉ tính cho xe có dữ liệu
@@ -1802,63 +2547,20 @@ def create_fuel_analysis_tab(df):
             help="Xe không có dữ liệu fuel hoặc distance"
         )
     
-    # BƯỚC 5: Bảng chi tiết TẤT CẢ xe
-    st.markdown("#### 📋 Bảng chi tiết TẤT CẢ xe")
+    # BƯỚC 4: Biểu đồ phân tích
+    st.markdown("#### 📊 Biểu đồ phân tích tiêu thụ")
     
-    # Sắp xếp: xe có dữ liệu trước, theo mức tiêu thụ
-    display_df = vehicle_fuel_df.copy()
-    display_df['sort_key'] = display_df.apply(lambda x: (
-        0 if x['avg_consumption'] > 0 else 1,  # Xe có dữ liệu trước
-        -x['avg_consumption']  # Tiêu thụ cao trước
-    ), axis=1)
-    display_df = display_df.sort_values(['sort_key', 'vehicle_id'])
+    # Chỉ 2 biểu đồ chính
+    col1, col2 = st.columns(2)
     
-    # Tạo bảng hiển thị
-    display_table = pd.DataFrame({
-        'Mã xe': display_df['vehicle_id'],
-        'Tổng chuyến': display_df['total_trips'],
-        'Chuyến có fuel': display_df['trips_with_fuel'],
-        'Chuyến có distance': display_df['trips_with_distance'],
-        'Tổng fuel (L)': display_df['total_fuel'].round(1),
-        'Tổng distance (km)': display_df['total_distance'].round(1),
-        'Tiêu thụ (L/100km)': display_df['avg_consumption'].round(2),
-        'Định mức (L/100km)': display_df['standard'],
-        'Chênh lệch (L/100km)': display_df['deviation'].round(2),
-        'Trạng thái': display_df['status']
-    })
-    
-    # Style cho bảng
-    def highlight_status(val):
-        if '🔴' in str(val):
-            return 'background-color: #ffebee'
-        elif '🟢' in str(val):
-            return 'background-color: #e8f5e8'
-        elif '🟡' in str(val):
-            return 'background-color: #fff8e1'
-        elif '⚫' in str(val):
-            return 'background-color: #f5f5f5'
-        return ''
-    
-    st.dataframe(
-        display_table.style.applymap(highlight_status, subset=['Trạng thái']),
-        use_container_width=True,
-        height=500
-    )
-    
-    # BƯỚC 6: Biểu đồ so sánh
-    st.markdown("#### 📊 Biểu đồ so sánh với định mức")
-    
-    # Chỉ hiển thị xe có cả dữ liệu và định mức
-    chart_data = vehicle_fuel_df[
-        (vehicle_fuel_df['avg_consumption'] > 0) & 
-        (vehicle_fuel_df['standard'] > 0)
-    ].copy()
-    
-    if not chart_data.empty:
-        col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("##### 📊 So sánh tiêu thụ vs định mức")
+        chart_data = vehicle_fuel_df[
+            (vehicle_fuel_df['avg_consumption'] > 0) & 
+            (vehicle_fuel_df['standard'] > 0)
+        ].copy()
         
-        with col1:
-            # Biểu đồ so sánh
+        if not chart_data.empty:
             fig_comparison = go.Figure()
             
             # Cột định mức
@@ -1892,17 +2594,21 @@ def create_fuel_analysis_tab(df):
                 barmode='group',
                 height=400
             )
+            fig_comparison.update_xaxes(tickangle=45)
             
             st.plotly_chart(fig_comparison, use_container_width=True)
-        
-        with col2:
-            # Biểu đồ phân tán
+        else:
+            st.info("Không có xe nào có đủ dữ liệu để so sánh")
+    
+    with col2:
+        st.markdown("##### 🎯 Ma trận: Định mức vs Thực tế")
+        if not chart_data.empty:
             fig_scatter = px.scatter(
                 chart_data,
                 x='standard',
                 y='avg_consumption',
                 hover_data=['vehicle_id', 'total_trips'],
-                title="Ma trận: Định mức vs Thực tế",
+                title="Định mức vs Thực tế",
                 labels={'standard': 'Định mức (L/100km)', 'avg_consumption': 'Thực tế (L/100km)'},
                 color='status_color',
                 color_discrete_map={'red': 'red', 'green': 'green', 'orange': 'orange'}
@@ -1918,10 +2624,10 @@ def create_fuel_analysis_tab(df):
             
             fig_scatter.update_layout(height=400)
             st.plotly_chart(fig_scatter, use_container_width=True)
-    else:
-        st.info("Không có xe nào có đủ dữ liệu và định mức để so sánh")
+        else:
+            st.info("Không có dữ liệu để so sánh")
     
-    # BƯỚC 7: Danh sách xe cần chú ý
+    # BƯỚC 5: Xe cần chú ý
     st.markdown("#### ⚠️ Xe cần chú ý")
     
     col1, col2 = st.columns(2)
@@ -1951,7 +2657,48 @@ def create_fuel_analysis_tab(df):
         else:
             st.success("✅ Tất cả xe đều có dữ liệu!")
     
-    # BƯỚC 8: Chi phí nhiên liệu
+    # BƯỚC 6: Bảng chi tiết xe
+    st.markdown("#### 📋 Bảng chi tiết tất cả xe")
+    
+    # Sắp xếp: xe có dữ liệu trước, theo mức tiêu thụ
+    display_df = vehicle_fuel_df.copy()
+    display_df['sort_key'] = display_df.apply(lambda x: (
+        0 if x['avg_consumption'] > 0 else 1,
+        -x['avg_consumption']
+    ), axis=1)
+    display_df = display_df.sort_values(['sort_key', 'vehicle_id'])
+    
+    # Tạo bảng hiển thị
+    display_table = pd.DataFrame({
+        'Mã xe': display_df['vehicle_id'],
+        'Tổng chuyến': display_df['total_trips'],
+        'Tổng fuel (L)': display_df['total_fuel'].round(1),
+        'Tổng distance (km)': display_df['total_distance'].round(1),
+        'Tiêu thụ (L/100km)': display_df['avg_consumption'].round(2),
+        'Định mức (L/100km)': display_df['standard'],
+        'Chênh lệch': display_df['deviation'].round(2),
+        'Trạng thái': display_df['status']
+    })
+    
+    # Style cho bảng
+    def highlight_status(val):
+        if '🔴' in str(val):
+            return 'background-color: #ffebee'
+        elif '🟢' in str(val):
+            return 'background-color: #e8f5e8'
+        elif '🟡' in str(val):
+            return 'background-color: #fff8e1'
+        elif '⚫' in str(val):
+            return 'background-color: #f5f5f5'
+        return ''
+    
+    st.dataframe(
+        display_table.style.applymap(highlight_status, subset=['Trạng thái']),
+        use_container_width=True,
+        height=400
+    )
+    
+    # BƯỚC 7: Chi phí nhiên liệu
     st.markdown("#### 💰 Ước tính chi phí nhiên liệu")
     
     fuel_price = st.number_input(
@@ -1995,34 +2742,7 @@ def create_fuel_analysis_tab(df):
             value=f"{potential_savings:,.0f} VNĐ",
             help="Số tiền có thể tiết kiệm nếu xe vượt định mức về đúng mức"
         )
-    
-    # BƯỚC 9: Debug chi tiết
-    if st.checkbox("🔧 Debug - Xem tính toán chi tiết"):
-        st.markdown("### 🔧 Debug - Tính toán chi tiết")
-        
-        selected_vehicle = st.selectbox(
-            "Chọn xe để xem chi tiết:",
-            options=all_vehicles,
-            index=0
-        )
-        
-        if selected_vehicle:
-            vehicle_detail = df_clean[df_clean['vehicle_id'] == selected_vehicle].copy()
-            vehicle_summary = vehicle_fuel_df[vehicle_fuel_df['vehicle_id'] == selected_vehicle].iloc[0]
-            
-            st.write(f"**Chi tiết xe {selected_vehicle}:**")
-            st.write(f"- Tổng chuyến: {vehicle_summary['total_trips']}")
-            st.write(f"- Chuyến có fuel > 0: {vehicle_summary['trips_with_fuel']}")
-            st.write(f"- Chuyến có distance > 0: {vehicle_summary['trips_with_distance']}")
-            st.write(f"- Tổng fuel: {vehicle_summary['total_fuel']:.1f}L")
-            st.write(f"- Tổng distance: {vehicle_summary['total_distance']:.1f}km")
-            st.write(f"- Tính toán: {vehicle_summary['total_fuel']:.1f} ÷ {vehicle_summary['total_distance']:.1f} × 100 = {vehicle_summary['avg_consumption']:.2f}L/100km")
-            st.write(f"- Định mức: {vehicle_summary['standard']}L/100km")
-            st.write(f"- Trạng thái: {vehicle_summary['status']}")
-            
-            st.markdown("**Sample dữ liệu thô:**")
-            sample_data = vehicle_detail[['fuel_liters', 'distance_km']].head(10)
-            st.dataframe(sample_data)
+
 
 def create_export_report_tab(df, start_date, end_date):
     """Tab 6: Xuất báo cáo theo từng xe"""
@@ -2391,15 +3111,24 @@ def create_driver_performance_table(df):
     else:
         df['revenue_vnd'] = 0
 
-    # FIXED: Duration is already parsed by ensure_duration_parsed()
-    # Remove the redundant parsing that was causing issues
+    # FIXED: Filter out empty/null driver names
+    valid_df = df[
+        df['driver_name'].notna() & 
+        (df['driver_name'].str.strip() != '') & 
+        (df['driver_name'] != 'nan') &
+        (df['driver_name'] != 'NaN')
+    ].copy()
+    
+    if valid_df.empty:
+        st.warning("⚠️ Không có dữ liệu tài xế hợp lệ")
+        return
     
     # Calculate metrics per driver
-    drivers = df['driver_name'].unique()
+    drivers = valid_df['driver_name'].unique()
     results = []
     
     for driver in drivers:
-        driver_data = df[df['driver_name'] == driver]
+        driver_data = valid_df[valid_df['driver_name'] == driver]
         
         # Basic metrics
         total_trips = len(driver_data)
@@ -2407,11 +3136,11 @@ def create_driver_performance_table(df):
         
         # FIXED: Duration calculation - filter out invalid values
         valid_duration_data = driver_data[
-            driver_data['Thời gian'].notna() & 
-            (driver_data['Thời gian'] >= 0) & 
-            (driver_data['Thời gian'] <= 24)
+            driver_data['duration_hours'].notna() & 
+            (driver_data['duration_hours'] >= 0) & 
+            (driver_data['duration_hours'] <= 24)
         ]
-        total_hours = float(valid_duration_data['Thời gian'].sum())
+        total_hours = float(valid_duration_data['duration_hours'].sum())
         
         # Days calculation
         if 'date' in driver_data.columns:
@@ -2419,6 +3148,11 @@ def create_driver_performance_table(df):
         else:
             active_days = 30  # Default
         
+        # FIXED: Only include drivers with meaningful data
+        # Skip if no trips or no meaningful activity
+        if total_trips == 0:
+            continue
+            
         # Derived metrics
         trips_per_day = (float(total_trips) / float(active_days)) if active_days > 0 else 0.0
         hours_per_day = (total_hours / float(active_days)) if active_days > 0 else 0.0
@@ -2432,6 +3166,11 @@ def create_driver_performance_table(df):
             'Chuyến/ngày': round(trips_per_day, 1),
             'Giờ lái/ngày': round(hours_per_day, 1)
         })
+    
+    # FIXED: Check if we have any valid results
+    if not results:
+        st.warning("⚠️ Không có dữ liệu tài xế hợp lệ để hiển thị")
+        return
     
     # Create DataFrame
     driver_display = pd.DataFrame(results)
