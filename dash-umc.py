@@ -7,13 +7,6 @@ import numpy as np
 from datetime import datetime
 import os, base64
 
-# Cấu hình trang
-st.set_page_config(
-    page_title="Dashboard Bệnh Viện - Multi Department",
-    page_icon="🏥",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
 
 # Custom CSS
 st.markdown("""
