@@ -4,7 +4,6 @@ Fleet Management Dashboard - Complete Version with Date Filters
 Dashboard with proper column mapping, date filtering, and all analysis features
 """
 
-import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
@@ -16,9 +15,7 @@ import sys
 from datetime import datetime
 import json
 import base64
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+
 
 # --------------------------------------------------------------------
 # Bypass login nếu đã authenticated ở dashboard tổng
