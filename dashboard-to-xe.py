@@ -458,6 +458,21 @@ def process_dataframe(df):
             # Create helper columns
             df['date'] = df['record_date'].dt.date
             df['month'] = df['record_date'].dt.to_period('M').astype(str)
+
+        # STEP 5: Prefix vehicle_id based on vehicle_type
+        if 'vehicle_id' in df.columns and 'vehicle_type' in df.columns:
+            def _add_prefix(vid, vtype):
+                """Return vehicle_id with type prefix (HC_ or CT_)."""
+                if pd.isna(vid):
+                    return vid
+                vid_str = str(vid)
+                if vtype == 'Hành chính' and not vid_str.startswith('HC_'):
+                    return f'HC_{vid_str}'
+                if vtype == 'Cứu thương' and not vid_str.startswith('CT_'):
+                    return f'CT_{vid_str}'
+                return vid_str
+            # Apply prefixing
+            df['vehicle_id'] = df.apply(lambda r: _add_prefix(r['vehicle_id'], r['vehicle_type']), axis=1)
         return df
         
     except Exception as e:
@@ -644,28 +659,38 @@ def create_date_filter_sidebar(df):
     col1, col2 = st.sidebar.columns(2)
     
     with col1:
-        if st.button("📅 7 ngày gần nhất", use_container_width=True, key="btn_7_days"):
-            st.session_state.date_filter_start = max_date - pd.Timedelta(days=6)
-            st.session_state.date_filter_end = max_date
-            st.rerun()
-        
-        if st.button("📅 Tháng này", use_container_width=True, key="btn_this_month"):
+    # Tháng này (current month)
+        if st.button("Tháng này", use_container_width=True, key="btn_this_month"):
             today = datetime.now().date()
             st.session_state.date_filter_start = today.replace(day=1)
             st.session_state.date_filter_end = min(today, max_date)
             st.rerun()
-    
-    with col2:
-        if st.button("📅 30 ngày gần nhất", use_container_width=True, key="btn_30_days"):
-            st.session_state.date_filter_start = max_date - pd.Timedelta(days=29)
-            st.session_state.date_filter_end = max_date
+
+        # Tháng trước (previous month)
+        if st.button("Tháng trc", use_container_width=True, key="btn_prev_month"):
+            today = datetime.now().date()
+            first_day_current_month = today.replace(day=1)
+            last_day_prev_month = first_day_current_month - pd.Timedelta(days=1)
+            first_day_prev_month = last_day_prev_month.replace(day=1)
+            st.session_state.date_filter_start = first_day_prev_month
+            st.session_state.date_filter_end = min(last_day_prev_month, max_date)
             st.rerun()
-        
-        if st.button("📅 Tất cả", use_container_width=True, key="btn_all_data"):
+
+    with col2:
+        # Tuần này (current week)
+        if st.button("Tuần này", use_container_width=True, key="btn_this_week"):
+            today = datetime.now().date()
+            start_of_week = today - pd.Timedelta(days=today.weekday())  # Monday as first day
+            st.session_state.date_filter_start = start_of_week
+            st.session_state.date_filter_end = min(today, max_date)
+            st.rerun()
+
+        # Tất cả (all available data)
+        if st.button("Tất cả", use_container_width=True, key="btn_all_data"):
             st.session_state.date_filter_start = min_date
             st.session_state.date_filter_end = max_date
             st.rerun()
-    
+        
     # Use the session state values for filtering
     filter_start = st.session_state.date_filter_start
     filter_end = st.session_state.date_filter_end
