@@ -14,6 +14,16 @@ import importlib.util
 import sys
 from pathlib import Path
 
+# THÊM những thư viện dashboard con cần:
+import numpy as np
+import requests
+import json
+from io import BytesIO
+from dotenv import load_dotenv
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
 # Page config
 st.set_page_config(
     page_title="Dashboard Phòng Hành chính - UMC",
