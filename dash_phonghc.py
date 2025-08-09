@@ -1,17 +1,11 @@
-import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
 import subprocess
 import os
-from dotenv import load_dotenv
-import sys
 from datetime import datetime
 import json
 import base64
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
     
 st.markdown("""
