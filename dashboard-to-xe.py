@@ -2718,7 +2718,7 @@ def create_fuel_analysis_tab(df):
         return ''
     
     st.dataframe(
-        display_table..style.map(highlight_status, subset=['Trạng thái']),
+        display_table.style.map(highlight_status, subset=['Trạng thái']),
         use_container_width=True,
         height=400
     )
