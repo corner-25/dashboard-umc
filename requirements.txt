@@ -1,21 +1,26 @@
-# Core dashboard dependencies
-streamlit
-pandas
-numpy
-plotly
-requests
+# Fixed requirements.txt cho Streamlit Cloud
+# Core dashboard dependencies với version cụ thể
+streamlit>=1.28.0
+pandas>=1.5.0,<2.0.0
+numpy>=1.24.0,<2.0.0
+plotly>=5.15.0
+requests>=2.31.0
 
-# Google API dependencies
-google-auth
-google-auth-oauthlib
-google-auth-httplib2
-google-api-python-client
+# Google API dependencies với version stable
+google-auth>=2.22.0,<3.0.0
+google-auth-oauthlib>=1.0.0,<2.0.0
+google-auth-httplib2>=0.1.0,<1.0.0
+google-api-python-client>=2.95.0,<3.0.0
 
 # Additional utilities
-python-dotenv
-openpyxl
-xlsxwriter
+python-dotenv>=1.0.0
+openpyxl>=3.1.0
+xlsxwriter>=3.1.0
 
-# Optional: for better performance
-pyarrow
-fastparquet
+# Optional: for better performance (remove nếu gây conflict)
+# pyarrow
+# fastparquet
+
+# Add missing dependencies mà code có thể cần
+gspread>=5.10.0
+oauth2client>=4.1.3
