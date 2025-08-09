@@ -660,31 +660,43 @@ def run_admin_dashboard():
         back_to_menu()
 
 def run_fleet_dashboard():
-    """Chạy dashboard tổ xe - FIXED"""
+    """Chạy dashboard tổ xe"""
     try:
-        # FIXED: Set bypass flag trước khi import
-        st.session_state['authenticated'] = True
-        st.session_state['skip_child_login'] = True
+        # Kiểm tra file tồn tại
+        if not os.path.exists("dashboard-to-xe.py"):
+            st.error("❌ Không tìm thấy file dashboard-to-xe.py")
+            st.info("📁 Files hiện có:")
+            for f in os.listdir("."):
+                if f.endswith(".py"):
+                    st.write(f"- {f}")
+            back_to_menu()
+            return
         
-        # FIXED: Import trực tiếp thay vì dùng importlib
-        if "dashboard-to-xe" not in sys.modules:
-            # Add current directory to Python path
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            if current_dir not in sys.path:
-                sys.path.insert(0, current_dir)
+        # Import và chạy dashboard tổ xe
+        import importlib.util
         
-        # FIXED: Đổi tên file để tránh dấu gạch ngang
-        import dashboard_to_xe as fleet_module
-        
-        # Chạy main function
-        if hasattr(fleet_module, 'main'):
-            fleet_module.main()
+        # Thử load module dashboard-to-xe.py
+        spec = importlib.util.spec_from_file_location("dashboard-to-xe", "dashboard-to-xe.py")
+        if spec and spec.loader:            
+            dashboard_6 = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(dashboard_6)
+            
+            # Kiểm tra function main
+            if hasattr(dashboard_6, 'main'):
+                # Chạy main function
+                dashboard_6.main()
+            else:
+                st.error("❌ Không tìm thấy function main() trong dashboard-to-xe.py")
+                st.info("💡 Hãy đảm bảo file có function main()")
+                back_to_menu()
         else:
-            st.error("❌ Không tìm thấy function main()")
+            st.error("❌ Không thể tạo spec cho dashboard-to-xe.py")
             back_to_menu()
             
     except Exception as e:
-        st.error(f"❌ Lỗi khi tải Dashboard Tổ Xe: {str(e)}")
+        st.error(f"❌ Lỗi khi tải Dashboard Tổ Xe:")
+        st.code(str(e))
+        st.info("💡 Có thể do thiếu secrets hoặc lỗi import")
         back_to_menu()
 
 def run_umc_dashboard():
