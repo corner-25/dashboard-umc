@@ -454,7 +454,7 @@ def process_dataframe(df):
         
         # Process datetime columns - Handle mm/dd/yyyy format
         if 'record_date' in df.columns:
-            df['record_date'] = pd.to_datetime(df['record_date'], format='%m/%d/%Y', errors='coerce')  # Tự động detect format
+            df['record_date'] = pd.to_datetime(df['record_date'], errors='coerce')  # Tự động detect format
             # Create helper columns
             df['date'] = df['record_date'].dt.date
             df['month'] = df['record_date'].dt.to_period('M').astype(str)
@@ -1722,7 +1722,7 @@ def create_overload_analysis_tab(df):
     # Xử lý dữ liệu ngày
     if 'date' not in df.columns:
         if 'record_date' in df.columns:
-            df['record_date'] = pd.to_datetime(df['record_date'], format='%m/%d/%Y', errors='coerce')
+            df['record_date'] = pd.to_datetime(df['record_date'], errors='coerce')
             df['date'] = df['record_date'].dt.date
         else:
             st.error("❌ Không có dữ liệu ngày để phân tích")
@@ -1810,8 +1810,8 @@ def create_overload_analysis_tab(df):
     if 'start_time' in df.columns and 'end_time' in df.columns:
         # Parse thời gian
         df_time = df.copy()
-        pd.to_datetime(df['start_time'], format='%Y-%m-%d %H:%M:%S', errors='coerce')
-        pd.to_datetime(df['end_time'], format='%Y-%m-%d %H:%M:%S', errors='coerce')
+        df_time['start_time'] = pd.to_datetime(df_time['start_time'], errors='coerce')
+        df_time['end_time'] = pd.to_datetime(df_time['end_time'], errors='coerce')
         df_time['start_hour'] = df_time['start_time'].dt.hour
         df_time['end_hour'] = df_time['end_time'].dt.hour
         
@@ -2270,7 +2270,7 @@ def create_distance_analysis_tab(df):
         
         # Parse time data
         time_data = distance_data.copy()
-        time_data['start_time'] = pd.to_datetime(df['start_time'], errors='coerce')
+        time_data['start_time'] = pd.to_datetime(time_data['start_time'], errors='coerce')
         time_data['hour'] = time_data['start_time'].dt.hour
         time_data['day_of_week'] = time_data['start_time'].dt.day_name()
         
@@ -2718,7 +2718,7 @@ def create_fuel_analysis_tab(df):
         return ''
     
     st.dataframe(
-        display_table.style.map(highlight_status, subset=['Trạng thái']),
+        display_table.style.applymap(highlight_status, subset=['Trạng thái']),
         use_container_width=True,
         height=400
     )
