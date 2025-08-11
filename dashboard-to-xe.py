@@ -15,7 +15,7 @@ import sys
 from datetime import datetime
 import json
 import base64
-
+import plotly.express as px
 
 # --------------------------------------------------------------------
 # Bypass login nếu đã authenticated ở dashboard tổng
